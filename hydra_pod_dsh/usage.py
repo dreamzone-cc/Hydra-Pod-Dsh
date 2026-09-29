@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Subscription usage for the workers, read without spending quota.
 
 - OpenCode Go: there is no official usage API (only the web console), so usage
@@ -27,6 +28,16 @@ ZAI_CACHE_TTL = 60
 
 def cache_dir() -> Path:
     return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "hydra-pod-dsh"
+
+
+def left(ts: float | None, now: float) -> str:
+    """Reset-countdown text for a usage window, e.g. "3h 10m" ("- " when unknown)."""
+    if not ts:
+        return "-"
+    s = max(0, int(ts - now))
+    d, rem = divmod(s, 86400)
+    h, m = divmod(rem // 60, 60)
+    return f"{d}d {h}h" if d else f"{h}h {m:02d}m"
 
 
 def opencode_db() -> Path:

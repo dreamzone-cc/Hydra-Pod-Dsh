@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """The workflow state machine (architecture §6-§9, §29, rev 2).
 
 State is never held in memory between commands: `fold()` rebuilds every

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Tests for scripts/install.sh and scripts/check-skill.mjs (run: python3 -B -m unittest discover -s tests)."""
 import os
 import shutil

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Workflow health (architecture §21, rev 2 G17): running, waiting, stalled or ready.
 
 A worker state (EXECUTING, REVIEWING) is `running` while its process is alive in

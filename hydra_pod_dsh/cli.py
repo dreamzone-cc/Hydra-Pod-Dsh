@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """hydra-pod-dsh: live stage and subscription usage for Hydra-Pod in DeepSeek Harness.
 
   hydra-pod-dsh status [--json]              who is working now, and that subscription's usage
@@ -134,15 +135,6 @@ def status(now: float | None = None, workers=None, stage=None, go=None, zai=None
     }
 
 
-def _left(ts: float | None, now: float) -> str:
-    if not ts:
-        return "-"
-    s = max(0, int(ts - now))
-    d, rem = divmod(s, 86400)
-    h, m = divmod(rem // 60, 60)
-    return f"{d}d {h}h" if d else f"{h}h {m:02d}m"
-
-
 def render(st: dict) -> str:
     now, a = st["now"], st["active"]
     lines = ["Hydra-Pod"]
@@ -169,7 +161,7 @@ def render(st: dict) -> str:
             amount = (f"${w['used_usd']:.2f} / ${w['limit_usd']:.2f}" if "used_usd" in w
                       else f"{w['used']} / {w['limit']}")
             pct = "-" if w["percent"] is None else f"{w['percent']}%"
-            lines.append(f"    {w['window']:<6} {pct:>6}  {amount:<18} resets in {_left(w['resets_at'], now)}")
+            lines.append(f"    {w['window']:<6} {pct:>6}  {amount:<18} resets in {usage.left(w['resets_at'], now)}")
     return "\n".join(lines)
 
 
@@ -290,7 +282,8 @@ def _wf(a) -> int:
                 cost = "-" if r["list_cost_usd"] is None else f"${r['list_cost_usd']:.4f}"
                 cred = "-" if r["zai_credits"] is None else str(int(r["zai_credits"]))
                 print(f"  {r['role']:<9} {r['model'] or '':<32} {r['billing'] or '':<26} runs={r['runs']:<3} "
-                      f"cost={cost:<9} zai_credits={cred:<5} seconds={r['seconds'] or '-'}")
+                      f"cost={cost:<9} zai_credits={cred:<5} seconds={r['seconds'] or '-'} "
+                      f"tool_calls={r['tool_calls'] if r['tool_calls'] is not None else '-'}")
                 print(f"            tokens {tokens.fmt(r['tokens'])} (work {tokens.human(r['work_tokens'])})")
         return 0
     else:  # timeline

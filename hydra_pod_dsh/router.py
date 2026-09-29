@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Router and policy checks (architecture §11, §12, §19, §37a rev 2).
 
 Hard constraints, checked before any preference:

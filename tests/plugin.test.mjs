@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Tests for plugin/lib/index.js (run: node --test tests/)
 import assert from 'node:assert/strict'
 import { test } from 'node:test'

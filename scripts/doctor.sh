@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Check that Hydra-Pod is ready to run inside DeepSeek Harness. Spends no quota.
 # usage: doctor.sh   (exit status 1 when a required item fails)
 set -uo pipefail

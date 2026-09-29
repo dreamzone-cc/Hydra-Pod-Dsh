@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Resource attribution (architecture §16, rev 2): Hydra-Pod's per-run cost log
 (`_receipts/<ticket>.costs.jsonl`, written by hydra-pod-dispatch) is the source of
 truth for external workers; this module mirrors each run into the ledger once,

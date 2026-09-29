@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Ledger ↔ ticket-folder consistency (architecture §6 rev 2, ADR-011).
 
 Hydra-Pod moves ticket files between `_tickets/{open,doing,done,blocked,dropped}`

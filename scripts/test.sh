@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Run every test suite. usage: scripts/test.sh   (exit status 1 when any suite fails)
 set -uo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)

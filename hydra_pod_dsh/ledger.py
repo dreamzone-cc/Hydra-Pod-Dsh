@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """The workflow ledger: an append-only, versioned JSONL event log in the project.
 
 It lives at `<project>/_receipts/ledger.jsonl`, with the other manager-owned

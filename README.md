@@ -19,7 +19,7 @@ This repository adds only the harness side. It depends on a Hydra-Pod checkout a
 
 ## Status
 
-Built and tested (102 tests: 94 Python and 8 Node, with mutation checks on the escalation limit, the ledger lock, the ledger hash chain, the budget block, the reviewer read-only rule and work-vs-cache token accounting). Every ledger transition (fold, check, append) runs under one lock, so two concurrent commands cannot both validate against the same state; operational failures (a typo'd workflow id, an unreadable config file or record) print one clean line with the documented exit code instead of a traceback. **Validated end to end with the real workers** (OpenCode Go builder, Z.ai GLM-5.3 reviewer) in `docs/04-validation-scripted-w1.md`; that run found two integration defects, both fixed. What is built:
+Built and tested (105 tests: 97 Python and 8 Node, with mutation checks on the escalation limit, the ledger lock, the ledger hash chain, the budget block, the reviewer read-only rule and work-vs-cache token accounting). Every ledger transition (fold, check, append) runs under one lock, so two concurrent commands cannot both validate against the same state; operational failures (a typo'd workflow id, an unreadable config file or record) print one clean line with the documented exit code instead of a traceback. **Validated end to end with the real workers** (OpenCode Go builder, Z.ai GLM-5.3 reviewer) in `docs/04-validation-scripted-w1.md`; that run found two integration defects, both fixed. What is built:
 
 - the skills, the live stage and usage plugin;
 - the workflow ledger and state machine;
@@ -138,7 +138,7 @@ docs/02-data-model.md          Phase 0: entities, event schema v1, state machine
 docs/03-validation-w1.md       Phase 0.5 runbook: the first real ticket with the manager in dsh
 docs/04-validation-scripted-w1.md  scripted W1 with real workers: result, defects found and fixed, closing report
 HYDRA-POD-DSH-ARCHITECTURE.md  target architecture, revision 2 (reviewed against both repositories)
-tests/                         94 Python tests + 8 Node tests (or just scripts/test.sh)
+tests/                         97 Python tests + 8 Node tests (or just scripts/test.sh)
 ```
 
 ## License

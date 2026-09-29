@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Tests for findings, manager usage, router/policy, budgets, health/recovery and checkpoints."""
 import json
 import os

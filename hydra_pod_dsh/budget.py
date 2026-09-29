@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Workflow budgets (architecture §17): 80% warns, 100% blocks further dispatch.
 
 Limits are set at `wf start` (`--budget-cost`, `--budget-credits`, `--budget-minutes`,

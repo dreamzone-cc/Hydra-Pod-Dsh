@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Per-stage accounting: which model worked in each stage, its tokens, and its quota share.
 
 A workflow is cut into stages by its ledger state events (each entry into a
@@ -165,16 +166,9 @@ def render(st: dict, now: float | None = None) -> str:
                 for name in ("5h", "week"):
                     if name in q:
                         x = q[name]
-                        left = "-" if not x["resets_at"] else _left(x["resets_at"], now)
                         lines.append(f"         {name:<4} this stage {x['percent']}% of the window "
-                                     f"({q['source']}); window now {x['window_percent_now']}%, resets in {left}")
+                                     f"({q['source']}); window now {x['window_percent_now']}%, "
+                                     f"resets in {usage.left(x['resets_at'], now)}")
     if st["unplaced_runs"]:
         lines.append(f"  unplaced runs: {len(st['unplaced_runs'])}")
     return "\n".join(lines)
-
-
-def _left(ts: float, now: float) -> str:
-    s = max(0, int(ts - now))
-    d, rem = divmod(s, 86400)
-    h, m = divmod(rem // 60, 60)
-    return f"{d}d {h}h" if d else f"{h}h {m:02d}m"

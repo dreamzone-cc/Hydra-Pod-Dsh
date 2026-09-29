@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """One token vocabulary for every source (cost log, DSH session logs, UI, report).
 
 Cache reads are kept apart from the work a model actually did: they are billed

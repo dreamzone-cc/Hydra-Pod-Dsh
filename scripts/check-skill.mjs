@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Validate SKILL.md frontmatter the way dsh-skill-filesystem does. A skill it
 // rejects is skipped with only a warning in the host log, so check here first.
 // Uses the same `yaml` parser, resolved from the dsh checkout ($DSH_REPO,

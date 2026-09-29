@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Who is working right now.
 
 Two sources, the live one first:

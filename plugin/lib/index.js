@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * dsh-hydra-pod, host half:
  * - GET /api/hydra-pod/status runs `hydra-pod-dsh status --json` (read-only, no quota spent;

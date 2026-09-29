@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Tests for hydra_pod_dsh (live stage, worker detection, usage, status rendering)."""
 import json
 import os

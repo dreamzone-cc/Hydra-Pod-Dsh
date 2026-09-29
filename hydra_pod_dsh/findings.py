@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Structured findings from Hydra-Pod review reports (architecture §5.4, rev 2).
 
 Hydra-Pod reviewers write one finding per line as

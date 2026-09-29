@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * dsh-hydra-pod, web half: a composer-dock indicator. The pill names who is working
  * now (manager, builder or reviewer) and the usage of the subscription in use; the

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Make Hydra-Pod available inside DeepSeek Harness (dsh).
 # Links two skills into the dsh user skill root ($DSH_HOME/skills, default ~/.dsh/skills):
 #   hydra-pod     -> this checkout's skills/hydra-pod   (the /hydra-pod entry point)

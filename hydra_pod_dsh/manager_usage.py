@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Manager usage from DSH session logs (architecture §16 rev 2: the Manager row).
 
 DSH stores each session as `$DSH_HOME/sessions/<cwd-key>/<session-id>/session.v<N>.jsonl.zstd`.

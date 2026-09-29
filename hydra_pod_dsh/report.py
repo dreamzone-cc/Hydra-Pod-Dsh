@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Closing report for one workflow (architecture §27, §46: who, what, why, how much).
 
 Built only from the ledger, the cost log, the review reports and the DSH session

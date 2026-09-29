@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Tests for the ledger, the workflow state machine, resource attribution and `wf` CLI."""
 import json
 import os
