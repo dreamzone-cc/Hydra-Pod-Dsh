@@ -182,6 +182,22 @@ class WorkflowTest(Base):
         with self.assertRaises(workflow.TransitionError):
             workflow.create(self.p, "T1", "obj", {"max_whatever": 1})
 
+    def test_policy_limits_must_be_positive_integers(self):
+        for bad in ({"max_rework_attempts": 0}, {"max_rework_attempts": -1},
+                    {"max_review_cycles": 1.5}, {"max_replans": True}):
+            with self.assertRaises(workflow.TransitionError, msg=bad):
+                workflow.create(self.p, "T1", "obj", bad)
+
+    def test_deciding_the_same_fix_task_twice_does_not_duplicate_it(self):
+        self.to_verifying()
+        workflow.decide(self.p, "WF-T1", "REWORK", "first", task_id="T1b")
+        for s in ("EXECUTING", "TESTING", "REVIEWING", "VERIFYING"):
+            workflow.advance(self.p, "WF-T1", s)
+        workflow.decide(self.p, "WF-T1", "REWORK", "again the same ticket", task_id="T1b")
+        w = workflow.get(self.p, "WF-T1")
+        self.assertEqual(w.tasks.count("T1b"), 1)
+        self.assertEqual(w.tasks, ["T1", "T1b"])
+
     def test_unsafe_ticket_ids_rejected(self):
         for bad in ("x/../../evil", "a b", "../T1", "T1*", "", "T#1", "x" * 65, ".hidden"):
             with self.assertRaises(workflow.TransitionError, msg=bad):
@@ -263,6 +279,15 @@ class ResourcesTest(Base):
         self.assertEqual(routes, {("executor", "subscription/opencode-go"), ("reviewer", "subscription/zai-lite")})
         self.assertEqual((sm["total"]["list_cost_usd"], sm["total"]["zai_credits"], sm["total"]["work_tokens"]), (0.5, 11, 120))
         self.assertEqual(sm["total"]["tokens"]["input"], 100)
+
+    def test_run_time_accepts_the_dispatch_format_and_degrades_cleanly(self):
+        """hydra-pod-dispatch writes aware local ISO (`now().astimezone().isoformat()`)."""
+        import datetime as dt
+        aware = dt.datetime.now().astimezone().isoformat(timespec="seconds")
+        self.assertAlmostEqual(resources.run_time({"at": aware}), dt.datetime.now().timestamp(), delta=5)
+        self.assertAlmostEqual(resources.run_time({"at": "2026-09-29T10:00:00+00:00"}), 1790676000.0, delta=1)
+        self.assertEqual(resources.run_time({"at": "not a date"}), None)
+        self.assertEqual(resources.run_time({}), None)
 
     def test_unknown_cost_stays_unknown(self):
         workflow.create(self.p, "T5", "obj")

@@ -16,6 +16,7 @@ import os
 import sqlite3
 import sys
 import time
+import urllib.parse
 from pathlib import Path
 
 HOUR = 3600
@@ -41,7 +42,7 @@ def monthly_limits() -> dict[str, float]:
 
 def go_spend(db: Path, provider: str, model: str, since: float) -> list[tuple[float, float]]:
     """[(time, cost)] of assistant messages for one model since `since` (epoch seconds)."""
-    uri = f"file:{db}?mode=ro"
+    uri = "file:" + urllib.parse.quote(str(db)) + "?mode=ro"  # quote: a path with ?/# must not break the URI
     con = sqlite3.connect(uri, uri=True, timeout=2)
     try:
         rows = con.execute(
@@ -121,7 +122,9 @@ def zai_usage(now: float | None = None, fetch=None) -> dict:
             return out
         if q is not None:
             cache.parent.mkdir(parents=True, exist_ok=True)
-            cache.write_text(json.dumps({"at": now, "quota": q}))
+            tmp = cache.with_suffix(f".{os.getpid()}.tmp")
+            tmp.write_text(json.dumps({"at": now, "quota": q}))
+            tmp.replace(cache)  # a concurrent reader never sees a half-written cache
     if q is None:
         out["error"] = "Z.ai quota unavailable (no key file or no network)"
         return out

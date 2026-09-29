@@ -21,7 +21,10 @@ Rules (architecture §15, §36):
 - tamper evidence: every event carries `prev`, a hash of the previous line.
   `_receipts/` is exempt from the worker scope check, so an edited, removed or
   reordered line must be detectable: `read()` verifies the chain and refuses a
-  broken one.
+  broken one. Limitation: the chain is an unkeyed hash inside the same file, so
+  it detects interior edits, removals and reorders, not a truncation of the
+  final line(s) or a full rewrite; committing `_receipts/` to git is the
+  external checkpoint that covers those.
 """
 
 import contextlib

@@ -57,7 +57,7 @@ Implemented in `hydra_pod_dsh/workflow.py`, and tested in `tests/test_workflow.p
 - **Forward moves:** `NEW → PLANNING → PLAN_READY → ASSIGNING → EXECUTING → TESTING → REVIEWING → VERIFYING`, `REWORK → EXECUTING`, `RE_REVIEW → REVIEWING`, `REPLAN → PLANNING`, `APPROVED → DONE`, `EXECUTING → FAILED`.
 - **Decisions:** in `VERIFYING`, any of `APPROVE`, `REWORK`, `RE_REVIEW`, `REPLAN`, `ESCALATE`, `ABORT`. In `TESTING` (the manager's acceptance run), only `REWORK`, `ESCALATE` or `ABORT`.
 - **Limits:** `max_rework_attempts` (3), `max_review_cycles` (4) and `max_replans` (2). A decision past its limit is recorded as `ESCALATE` → `BLOCKED`, with `requested` and `limit_note` kept.
-- **Human actions:** `cancel` (→ `CANCELLED`), `pause` (→ `BLOCKED`), `resume` (→ the state before `BLOCKED`, or `--to`), `approve` (→ `APPROVED`), `reject` (→ `REWORK`).
+- **Human actions:** `cancel` (→ `CANCELLED`), `pause` (→ `BLOCKED`), `resume` (→ the state before `BLOCKED`, or `--to`), `approve` (→ `APPROVED`), `reject` (→ `REWORK`). A human decision is an override **by design**: it may move the workflow from any non-terminal state and is not bounded by the policy limits (`max_rework_attempts` and friends bind the manager's decisions, not the user's).
 - **Terminal states:** `DONE`, `FAILED`, `CANCELLED`, `ABORTED`. Every move out of them is refused.
 - **Checkpoints:** every state event carries `git_head`, the project's HEAD at that move (§20, §22).
 - **Recovery:** a stalled worker step (no process, no receipt or report after `GRACE_SECONDS`, see `health.py`) is retried with `wf recover`: `EXECUTING` → `ASSIGNING` or `REVIEWING` → `TESTING`, recorded as `hydra/agent-completed {status: failed}` plus a `recovery: true` state event.

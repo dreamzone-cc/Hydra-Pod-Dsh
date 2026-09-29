@@ -187,6 +187,8 @@ def create(project, ticket: str, objective: str, policy: dict | None = None, act
     bad = set(policy or {}) - set(DEFAULT_POLICY)
     if bad:
         raise TransitionError(f"unknown policy keys: {sorted(bad)}")
+    if any(not isinstance(v, int) or isinstance(v, bool) or v < 1 for v in (policy or {}).values()):
+        raise TransitionError("policy limits must be positive integers")
     bad = set(budget or {}) - set(BUDGET_KEYS)
     if bad:
         raise TransitionError(f"unknown budget keys: {sorted(bad)}")

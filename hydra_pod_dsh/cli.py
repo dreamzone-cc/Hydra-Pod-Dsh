@@ -430,7 +430,7 @@ def _dispatch(ap, a) -> int:
         return 0
     if not a.stage:
         ap.error("stage needs <ticket|-> <stage>, or --clear")
-    entry = live.set_stage(None if a.ticket in (None, "-") else a.ticket, a.stage, a.project, a.by)
+    entry = live.set_stage(None if a.ticket in (None, "-") else a.ticket, a.stage, os.path.abspath(a.project), a.by)
     print(f"stage: {entry['stage']}" + (f" ({entry['ticket']})" if entry["ticket"] else ""))
     return 0
 

@@ -29,7 +29,7 @@ def set_stage(ticket: str | None, stage: str, project: str, by: str = MANAGER, n
              "at": time.time() if now is None else now}
     f = stage_file()
     f.parent.mkdir(parents=True, exist_ok=True)
-    tmp = f.with_suffix(".tmp")
+    tmp = f.with_suffix(f".{os.getpid()}.tmp")  # unique: two stage writers cannot clobber each other
     tmp.write_text(json.dumps(entry))
     tmp.replace(f)
     return entry
