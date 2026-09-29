@@ -1,0 +1,5 @@
+{
+  "_note": "The dsh build this checkout was tested against (doctor.sh warns on a mismatch).",
+  "version": "0.2.0-rc.1",
+  "commit": "4878cda"
+}

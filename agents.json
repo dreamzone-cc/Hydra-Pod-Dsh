@@ -1,0 +1,34 @@
+{
+  "_doc": "Agent registry (architecture §11 rev 2). Role -> Agent -> Runtime -> Model -> Billing route. The Router (hydra_pod_dsh/router.py) only picks agents whose billing route is allowed and whose runtime can honour the model (§12, §19).",
+  "agents": {
+    "manager": {"role": "manager", "runtime": "dsh", "model": "anthropic/claude-opus-5-5", "billing": "api/anthropic",
+                "capabilities": ["planning", "decomposition", "verification", "architecture"]},
+    "builder": {"role": "executor", "runtime": "opencode", "model": "opencode-go/deepseek-v4.1-flash",
+                "billing": "subscription/opencode-go", "capabilities": ["coding", "terminal", "tests"]},
+    "reviewer": {"role": "reviewer", "runtime": "opencode", "model": "zai-coding-plan/glm-5.3",
+                 "billing": "subscription/zai-lite", "read_only": "opencode agent 'reviewer'", "capabilities": ["code-review"]},
+    "reviewer-zcode": {"role": "reviewer", "runtime": "zcode", "model": "zai-coding-plan/glm-5.3",
+                       "billing": "subscription/zai-lite", "read_only": "ZCode tool set Read/Glob/Grep", "capabilities": ["code-review"]},
+    "specialist-dsh": {"role": "specialist", "runtime": "dsh-subagent", "model": "anthropic/claude-opus-5-5",
+                       "billing": "api/anthropic", "capabilities": ["security", "architecture", "code-review"],
+                       "note": "in-process DSH child: the only runtime where the model can be chosen per request"}
+  },
+  "runtimes": {
+    "dsh": {"model_override": true, "stream": true, "resume": true, "usage": "dsh-session"},
+    "dsh-subagent": {"model_override": true, "stream": true, "resume": true, "usage": "dsh-session"},
+    "dsh-sdk": {"model_override": true, "stream": false, "resume": false, "usage": "child-session"},
+    "opencode": {"model_override": true, "stream": true, "resume": true, "usage": "cost-log"},
+    "zcode": {"model_override": false, "stream": false, "resume": true, "usage": "zai-credits"},
+    "acp": {"model_override": false, "stream": false, "resume": false, "usage": "none"},
+    "claude-code-subagent": {"model_override": false, "stream": false, "resume": false, "usage": "none"}
+  },
+  "policy": {
+    "allowed_billing": {
+      "manager": ["api/anthropic"],
+      "executor": ["subscription/opencode-go"],
+      "reviewer": ["subscription/zai-lite"],
+      "specialist": ["api/anthropic"]
+    },
+    "forbidden_billing": ["oauth/claude-pro", "api/zai-payg", "subscription/opencode-go:glm-5.3"]
+  }
+}

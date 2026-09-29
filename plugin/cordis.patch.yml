@@ -1,0 +1,4 @@
+# dsh-hydra-pod: one read-only status route plus a composer-dock indicator.
+- insert:
+    - id: hydra-pod-status
+      name: dsh-hydra-pod

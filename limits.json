@@ -1,0 +1,5 @@
+{
+  "_source": "https://opencode.ai/docs/go/ (Go plan, checked 2026-09-28). Monthly limit per model in USD at list prices; 5h = 20%, week = 50%. Update when the plan changes.",
+  "opencode-go/deepseek-v4.1-flash": {"monthly_usd": 60},
+  "opencode-go/glm-5.3": {"monthly_usd": 15}
+}

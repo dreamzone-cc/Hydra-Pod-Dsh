@@ -1,0 +1,23 @@
+{
+  "name": "dsh-hydra-pod",
+  "version": "0.1.0",
+  "description": "Hydra-Pod for DeepSeek Harness: shows who is working now (manager, builder, reviewer) and the live usage of the OpenCode Go and Z.ai Lite subscriptions.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": ["lib", "cordis.patch.yml"],
+  "keywords": ["deepseek-harness", "dsh-plugin", "hydra-pod"],
+  "license": "AGPL-3.0-or-later",
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "inject": ["@deepseek-ai/dsh-client-ui-conversation"],
+      "platform": "web"
+    }
+  }
+}
