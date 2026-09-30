@@ -28,7 +28,7 @@ def classify_provider(provider: str | None) -> str:
     """Billing route of a DSH provider id as it appears in session logs."""
     p = (provider or "").lower()
     if p in ("pi-anthropic",) or (p.startswith("pi-") and "anthropic" in p):
-        return "oauth/claude-pro"        # consumer OAuth bridged into DSH: out of policy
+        return "oauth/claude-pro"        # consumer OAuth bridged into DSH: operator-approved for the manager (2026-09-30)
     if p.startswith("pi-"):
         return f"oauth/{p[3:]}"
     if p == "anthropic":
@@ -64,10 +64,15 @@ def violations(reg: dict | None = None) -> list[str]:
 
 def route(role: str, capability: str | None = None, model: str | None = None,
           reg: dict | None = None, exclude: tuple = ()) -> dict:
-    """The first agent for `role` that passes every hard constraint."""
+    """The first agent for `role` that passes every hard constraint.
+
+    A requested model is honoured first by an agent whose own model matches it
+    (so its billing route matches too), then by a runtime that can select any
+    model (model_override)."""
     reg = reg or load()
     pol = reg["policy"]
     reasons = []
+    passing = []
     for name, a in reg["agents"].items():
         if a["role"] != role or name in exclude:
             continue
@@ -83,6 +88,12 @@ def route(role: str, capability: str | None = None, model: str | None = None,
         if role == "reviewer" and not a.get("read_only"):
             reasons.append(f"{name}: no enforced read-only")
             continue
+        passing.append((name, a))
+    for name, a in passing:
+        if not model or a["model"] == model:
+            return {"agent": name, **a}
+    if passing:
+        name, a = passing[0]
         return {"agent": name, **a, **({"model": model} if model else {})}
     raise PolicyError(f"no agent for role {role!r}" + (f" ({capability})" if capability else "")
                       + ("; " + "; ".join(reasons) if reasons else ""))

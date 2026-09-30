@@ -19,7 +19,7 @@ This repository adds only the harness side. It depends on a Hydra-Pod checkout a
 
 ## Status
 
-Built and tested (105 tests: 97 Python and 8 Node, with mutation checks on the escalation limit, the ledger lock, the ledger hash chain, the budget block, the reviewer read-only rule and work-vs-cache token accounting). Every ledger transition (fold, check, append) runs under one lock, so two concurrent commands cannot both validate against the same state; operational failures (a typo'd workflow id, an unreadable config file or record) print one clean line with the documented exit code instead of a traceback. **Validated end to end with the real workers** (OpenCode Go builder, Z.ai GLM-5.3 reviewer) in `docs/04-validation-scripted-w1.md`; that run found two integration defects, both fixed. What is built:
+Built and tested (106 tests: 98 Python and 8 Node, with mutation checks on the escalation limit, the ledger lock, the ledger hash chain, the budget block, the reviewer read-only rule and work-vs-cache token accounting). Every ledger transition (fold, check, append) runs under one lock, so two concurrent commands cannot both validate against the same state; operational failures (a typo'd workflow id, an unreadable config file or record) print one clean line with the documented exit code instead of a traceback. **Validated end to end with the real workers** (OpenCode Go builder, Z.ai GLM-5.3 reviewer) in `docs/04-validation-scripted-w1.md`; that run found two integration defects, both fixed. What is built:
 
 - the skills, the live stage and usage plugin;
 - the workflow ledger and state machine;
@@ -78,7 +78,7 @@ hydra-pod-dsh wf timeline WF-T6
 | `wf start … --budget-cost/--budget-credits/--budget-minutes/--budget-manager-tokens` | Budgets. Dispatch warns at 80%; at 100% it blocks (exit 3, `BLOCKED` by policy) |
 | `wf findings WF` | The reviewer's findings with the manager's verdicts (valid, rejected or unverified) |
 | `wf health WF` / `wf recover WF --reason …` | Detects a stalled build or review, then retries it |
-| `wf manager WF` | The manager's own token usage from the DSH session logs, with its billing route checked. `pi-anthropic` means Claude Pro via OAuth, which is out of policy |
+| `wf manager WF` | The manager's own token usage from the DSH session logs, with its billing route checked. `pi-anthropic` means Claude Pro via OAuth — an operator-approved manager billing route (since 2026-09-30) |
 | `wf stages WF` | Per stage: which model worked (manager, builder, reviewer), its tokens (work = input + output + reasoning; cache apart), its cost or Z.ai credits, and its share of the 5 h / weekly windows with their reset times. The same table is in the popover and in `wf report` |
 | `wf check [WF]` | Compares the ledger with the ticket folders (`claim`/`close` move files, `wf` records state). Exit 4 on drift |
 | `wf report WF [--write]` | Closing report from the ledger, the cost log, the review reports and the DSH logs; `--write` saves `_receipts/WF-<T>.report.md` |
@@ -114,7 +114,7 @@ cd /path/to/project && dsh web
 
 ## What is different from Claude Code
 
-- **The manager model is Claude Opus 5.5, through an Anthropic API key** added in dsh (Settings → Models, provider `anthropic`). This is billed per use. The Claude Pro subscription is for Anthropic's official clients, so it is not used inside dsh (see `~/Hydra-Pod/docs/07-security.md`). The manager plans, runs the workflow, and gives the final approval. The skill warns if the manager is the same model as a worker.
+- **The manager model is Claude Opus 5.5, through an Anthropic API key** added in dsh (Settings → Models, provider `anthropic`), billed per use. **Operator decision 2026-09-30:** the Claude Pro subscription reached through an OAuth bridge (`pi-anthropic` models, billing `oauth/claude-pro`) is also an allowed manager billing route; the API key stays the default. The bridge is the operator's own plugin and subscription (see `~/Hydra-Pod/docs/07-security.md` for the original terms note). The manager plans, runs the workflow, and gives the final approval. The skill warns if the manager is the same model as a worker.
 - **Sandbox.** dsh confines shell commands to the project folder (`workspace-write`). `hydra-pod-dispatch`, `hydra-pod-connect` and opencode also write to their own state directories, so each such call is denied once and then retried with `danger-full-access` after you approve it. To avoid the prompts, switch the session to full access in the UI, or start dsh with `DSH_PERMISSION_MODE=danger-full-access`. Full access means that no command in that session is confined.
 - **Long steps.** The bash tool times out after 60 s. Builds and reviews therefore run as dsh background jobs, and the skill tells the manager to wait for them with `job_output` rather than restarting them.
 - **No shell state between calls.** Every call is a fresh `bash -c`, so the skill puts `cd <project> &&` and `HYDRA_POD_COMMIT_TRAILER=…` on each command line.
@@ -138,7 +138,7 @@ docs/02-data-model.md          Phase 0: entities, event schema v1, state machine
 docs/03-validation-w1.md       Phase 0.5 runbook: the first real ticket with the manager in dsh
 docs/04-validation-scripted-w1.md  scripted W1 with real workers: result, defects found and fixed, closing report
 HYDRA-POD-DSH-ARCHITECTURE.md  target architecture, revision 2 (reviewed against both repositories)
-tests/                         97 Python tests + 8 Node tests (or just scripts/test.sh)
+tests/                         98 Python tests + 8 Node tests (or just scripts/test.sh)
 ```
 
 ## License

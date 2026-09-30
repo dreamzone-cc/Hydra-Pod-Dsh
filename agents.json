@@ -3,6 +3,9 @@
   "agents": {
     "manager": {"role": "manager", "runtime": "dsh", "model": "anthropic/claude-opus-5-5", "billing": "api/anthropic",
                 "capabilities": ["planning", "decomposition", "verification", "architecture"]},
+    "manager-oauth": {"role": "manager", "runtime": "dsh", "model": "pi-anthropic/claude-opus-5", "billing": "oauth/claude-pro",
+                      "capabilities": ["planning", "decomposition", "verification", "architecture"],
+                      "note": "operator-approved 2026-09-30: the Claude Pro subscription via OAuth is an allowed manager billing route; the API-key agent stays the default"},
     "builder": {"role": "executor", "runtime": "opencode", "model": "opencode-go/deepseek-v4.1-flash",
                 "billing": "subscription/opencode-go", "capabilities": ["coding", "terminal", "tests"]},
     "reviewer": {"role": "reviewer", "runtime": "opencode", "model": "zai-coding-plan/glm-5.3",
@@ -24,11 +27,11 @@
   },
   "policy": {
     "allowed_billing": {
-      "manager": ["api/anthropic"],
+      "manager": ["api/anthropic", "oauth/claude-pro"],
       "executor": ["subscription/opencode-go"],
       "reviewer": ["subscription/zai-lite"],
       "specialist": ["api/anthropic"]
     },
-    "forbidden_billing": ["oauth/claude-pro", "api/zai-payg", "subscription/opencode-go:glm-5.3"]
+    "forbidden_billing": ["api/zai-payg", "subscription/opencode-go:glm-5.3"]
   }
 }

@@ -40,7 +40,7 @@ Using the subscriptions from dsh as model providers, without opencode, was not p
 
 ## Manager model
 
-The manager is Claude Opus 5.5 through an Anthropic API key configured in dsh (decided 2026-09-28). The Claude Pro subscription stays with Anthropic's official clients. Rules carried over from Hydra-Pod:
+The manager is Claude Opus 5.5 through an Anthropic API key configured in dsh (decided 2026-09-28). Amended 2026-09-30 by operator decision: the Claude Pro subscription via an OAuth bridge (billing `oauth/claude-pro`) is also an allowed manager billing route, with the API key remaining the default. Rules carried over from Hydra-Pod:
 
 - the manager is never the builder or the reviewer model;
 - the manager does not write the implementation;

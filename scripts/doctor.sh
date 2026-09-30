@@ -48,14 +48,13 @@ have=$(dsh --version 2>/dev/null | tail -1)
 if [ -n "$pin" ] && [ -n "$have" ] && [ "$have" != "$pin" ]; then
   say WARN "dsh $have is not the tested pin $pin (dsh-pin.json): rerun the tests before relying on it"
 fi
-# Policy §37a: consumer OAuth bridged into dsh is out of policy for the manager.
-for bad in dsh-claude-oauth; do
-  if [ -e "$dsh_home/profiles/web/node_modules/$bad/package.json" ]; then
-    say FAIL "plugin $bad is installed: it bridges Claude Pro OAuth into dsh (remove: dsh plugin --profile web remove $bad)"; fail=1
-  fi
-done
+# Policy §37a (amended 2026-09-30): the operator allows the Claude Pro OAuth bridge
+# (oauth/claude-pro) as a manager billing route, alongside the Anthropic API key.
+if [ -e "$dsh_home/profiles/web/node_modules/dsh-claude-oauth/package.json" ]; then
+  say ok "plugin dsh-claude-oauth (Claude Pro OAuth bridge): operator-approved manager billing route"
+fi
 if [ -e "$dsh_home/profiles/web/node_modules/dsh-oauth-login/package.json" ]; then
-  say WARN "dsh-oauth-login is installed: never pick its pi-anthropic (Claude Pro OAuth) model for the manager"
+  say note "dsh-oauth-login is installed: its pi-anthropic model is on the allowed oauth/claude-pro route"
 fi
 
 case "${DSH_PERMISSION_MODE:-workspace-write}" in

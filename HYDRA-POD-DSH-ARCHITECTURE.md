@@ -734,7 +734,7 @@ agents:
   manager:                  # [rev 2] Leader + Planner + Verifier, as in Hydra-Pod today
     runtime: dsh            # the session the user works in
     model: anthropic/claude-opus-5.5
-    billing: api/anthropic  # decided 2026-09-28; Claude Pro stays in official clients
+    billing: api/anthropic  # decided 2026-09-28; oauth/claude-pro allowed as manager route 2026-09-30 (operator)
     capabilities: [planning, decomposition, verification, architecture]
 
   executor:
@@ -2158,8 +2158,8 @@ second sandbox where possible.
 
 ## 37a. [rev 2] Billing and terms policy (G1)
 
-- Every model runs through a client its provider supports: OpenCode Go through opencode, the Z.ai GLM Coding Plan through opencode (`zai-coding-plan`) or ZCode, and Claude Pro through Claude Code or Anthropic apps only.
-- The manager in DSH uses an Anthropic **API key** (decided 2026-09-28). Plugins that bridge consumer OAuth into DSH (for example ones that reuse Claude Code's login) are out of policy.
+- Every model runs through a client its provider supports: OpenCode Go through opencode, the Z.ai GLM Coding Plan through opencode (`zai-coding-plan`) or ZCode, and Claude Pro through Claude Code, Anthropic apps, or the operator-approved OAuth bridge in DSH (see below).
+- The manager in DSH uses an Anthropic **API key** (decided 2026-09-28). Operator amendment 2026-09-30: plugins that bridge consumer OAuth into DSH (`oauth/claude-pro`, e.g. a Claude Code login bridge) are an ALLOWED manager billing route, at the operator's own choice and risk; the API key remains the default route. The provider's subscription terms still govern that subscription; this section records the operator's routing policy, not a provider-side endorsement.
 - New billing routes (e.g. `api/deepseek`) are opt-in, per project, and recorded in `workers.md`.
 - Excluded: `opencode-go/glm-5.3` for review (it bills OpenCode Go), `zai/glm-5.3` (pay-as-you-go), and `pi` with Z.ai.
 

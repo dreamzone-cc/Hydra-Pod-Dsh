@@ -119,7 +119,16 @@ class ManagerUsageTest(Tmp):
                                                  msg(100, "pi-anthropic", "claude-opus-5", 1, 1)], compress=False)
         u = manager_usage.usage_for(proj, 0, home=home)
         self.assertEqual(len(u["by_model"]), 1)
-        self.assertEqual(router.check_manager_routes(u["by_model"])[0].split("→")[1].split()[0], "oauth/claude-pro")
+        # Operator amendment 2026-09-30: the Claude Pro OAuth bridge is an allowed manager route.
+        self.assertEqual(router.check_manager_routes(u["by_model"]), [])  # annotates billing in place
+        self.assertEqual(u["by_model"][0]["billing"], "oauth/claude-pro")
+
+    def test_non_whitelisted_manager_routes_are_still_flagged(self):
+        def row(provider):
+            return {"provider": provider, "model": "m", "messages": 1,
+                    "tokens": {"input": 0, "output": 0, "reasoning": 0, "cache_read": 0, "cache_write": 0}}
+        for provider in ("zai-payg", "opencode"):  # pay-as-you-go and unmapped runtimes stay out of policy
+            self.assertTrue(router.check_manager_routes([row(provider)]), provider)
 
     def test_truncated_final_frame_is_tolerated(self):
         home = self.p / "dsh"
