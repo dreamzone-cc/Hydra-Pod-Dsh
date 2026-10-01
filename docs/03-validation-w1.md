@@ -5,6 +5,7 @@ Exit criterion (architecture §31): one real ticket is closed with the manager (
 ## Before you start
 
 1. **Pick the manager billing route.** Default: an Anthropic **API key** in DSH (Settings → Models → Add model provider → `anthropic`), then choose Claude Opus 5.5 in the model menu. Since the operator amendment of 2026-09-30, the Claude Pro OAuth bridge (`pi-anthropic` models, `oauth/claude-pro`) is also an allowed manager route, so the bridge plugin may stay installed if you prefer that path.
+   *Note (2026-10-01):* in this machine's `web` profile, the provider named `anthropic` is **"Anthropic (Claude OAuth)"** (`apiKeyEnv: ANTHROPIC_OAUTH_TOKEN`), i.e. the Claude subscription, not an API key. `hydra-pod-dsh` now classifies a provider by its definition in the DSH profile, so `wf manager` reports this route as `oauth/claude-pro`, and its cost as part of the subscription rather than API spend.
 2. **Check readiness** (no quota spent): `~/Hydra-Pod/Hydra-Pod-Dsh/scripts/doctor.sh`. Every line must be `ok`.
 3. **Check the providers:** `hydra-pod-connect status` shows opencode-go and Z.ai as Connected. Z.ai's weekly window must have room: `hydra-pod-dsh status`.
 4. **Start DSH from a clean test project**, e.g. a copy of the sandbox:
