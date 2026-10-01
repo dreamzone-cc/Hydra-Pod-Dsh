@@ -26,7 +26,7 @@ import hashlib
 import time
 from pathlib import Path
 
-from . import diffsum, lessons, repomap, workflow
+from . import diffsum, lessons, repomap, skills, steward, workflow
 
 DEFAULT_TOKENS = 6000
 WHOLE_FILE_LINES = 250       # a file to change is included whole up to this size
@@ -102,6 +102,14 @@ def build(project, task: str, max_tokens: int = DEFAULT_TOKENS) -> dict:
         sections.append((title, text))
         used += len(text)
 
+    memory = steward.read_sections(project)
+    if memory:  # first, and the same for every ticket: a stable prefix
+        take("Project memory (steward)", "".join(f"### {k}\n\n{v}\n\n" for k, v in memory.items()))
+    attached = skills.match(project, allowed + hints, body)
+    if attached:
+        take("Project skills that apply to this ticket",
+             "".join(f"### {n}\n\n{skills.body(project, n)}\n\n" for n in attached))
+
     files = "".join(_file_block(project, f, WHOLE_FILE_LINES, max(0, budget // 2 - used)) + "\n" for f in allowed)
     take("Files this ticket changes", files or "(the ticket lists no allowed_files)\n")
     if hints:
@@ -126,6 +134,7 @@ def build(project, task: str, max_tokens: int = DEFAULT_TOKENS) -> dict:
     return {"ticket": path.stem, "path": f"_receipts/{path.stem}.context.md", "text": text,
             "tokens": tokens_of(text), "budget_tokens": max_tokens, "complexity": complexity, "risk": risk,
             "files": allowed, "read_hints": hints, "lessons": len(found), "map_files": rmap["files_shown"],
+            "skills": attached,
             "sha256": hashlib.sha256(text.encode()).hexdigest()[:16], "git_head": head,
             "ticket_points_to_pack": f"_receipts/{path.stem}.context.md" in body}
 
@@ -140,7 +149,8 @@ def write(project, wid: str, task: str | None = None, max_tokens: int = DEFAULT_
     out.write_text(p["text"])
     workflow.record(project, wid, "hydra/context-pack", ignorable=True,
                     payload={k: p[k] for k in ("ticket", "path", "tokens", "budget_tokens", "complexity", "risk",
-                                               "files", "read_hints", "lessons", "map_files", "sha256", "git_head")}
+                                               "files", "read_hints", "lessons", "map_files", "skills", "sha256",
+                                               "git_head")}
                     | {"at_iso": time.strftime("%Y-%m-%dT%H:%M:%S%z")})
     return p
 

@@ -36,6 +36,9 @@
   hydra-pod-dsh plan approve <NAME> --ticket T1 --ticket T2:T1 ... --reason TEXT [--project DIR]
                                               approve a multi-ticket plan (T2:T1 = T2 depends on T1)
   hydra-pod-dsh plan show <NAME> [--json] | plan list   waves, states, and what may start now
+  hydra-pod-dsh skill add <NAME> --description D --file BODY.md [--paths G,..] [--keywords K,..] [--reason R]
+  hydra-pod-dsh skill revise|approve|retire <NAME> [--file BODY.md] --reason R | skill list|show [NAME]
+  hydra-pod-dsh steward init | steward set <SECTION> --text T --reason R | steward show   [--project DIR]
   hydra-pod-dsh route <role> [--capability C] [--model M] [--json]
   hydra-pod-dsh policy [--json]               registry violations (billing, read-only, role separation)
   exit status: 0 ok, 1 environment error (clean message), 2 refused move or bad input,
@@ -53,7 +56,8 @@ import os
 import sys
 import time
 
-from . import (adapters, bench, brief, budget, consistency, diffsum, findings, lessons, pack, plan, profiles, repomap, health, ledger, live, manager_usage, report, resources, router, stages,
+from . import (adapters, bench, brief, budget, consistency, diffsum, findings, lessons, pack, plan, profiles, repomap,
+               skills, steward, health, ledger, live, manager_usage, report, resources, router, stages,
                tokens, usage, workflow)
 
 SCHEMA_VERSION = 1  # of the JSON printed by `status --json` and `wf ... --json` (§13.3)
@@ -235,6 +239,7 @@ def _wf(a) -> int:
                     + "; ".join(pending[:8]) + ("; …" if len(pending) > 8 else ""))
         w = workflow.decide(project, a.workflow, a.decision, a.reason, actor=actor, task_id=a.task,
                             directive=directive)
+        _score_skills(project, w)
     elif a.wf == "human":
         w = workflow.human(project, a.workflow, a.action, a.reason, to=a.to)
     elif a.wf == "show":
@@ -384,6 +389,23 @@ def _wf(a) -> int:
     return 0
 
 
+def _score_skills(project: str, w: "workflow.Workflow") -> None:
+    """Skills attached to the workflow's latest context pack earn the decision's outcome."""
+    decision = (w.last_decision or {}).get("decision")
+    if decision not in ("APPROVE", "REWORK"):
+        return
+    packs = [e for e in workflow.timeline(project, w.id) if e["type"] == "hydra/context-pack"]
+    if not packs:
+        return
+    last = packs[-1]
+    for name in last["payload"].get("skills") or []:
+        try:
+            s = skills.outcome(project, name, decision == "APPROVE", w.id, last["seq"])
+        except ValueError:
+            continue  # a skill removed since the pack was written
+        print(f"  skill {name}: {decision == 'APPROVE' and 'success' or 'failure'} recorded ({s['state']})")
+
+
 def _human(kind: str, out: dict) -> str:
     if kind == "budget":
         rows = [f"{out['workflow_id']}: budget {out['level']}"] + [
@@ -501,6 +523,14 @@ def main(argv=None) -> int:
     x.add_argument("--ticket", action="append", default=[], help="T or T:DEP1,DEP2 (repeatable)")
     x.add_argument("--reason"); x.add_argument("--by"); x.add_argument("--project", default=os.getcwd())
     x.add_argument("--json", action="store_true")
+    x = sub.add_parser("skill", help="the project's skills library (.hydra/skills)")
+    x.add_argument("action", choices=("add", "revise", "approve", "retire", "list", "show"))
+    x.add_argument("name", nargs="?"); x.add_argument("--description"); x.add_argument("--file")
+    x.add_argument("--paths"); x.add_argument("--keywords"); x.add_argument("--reason", default="")
+    x.add_argument("--project", default=os.getcwd()); x.add_argument("--json", action="store_true")
+    x = sub.add_parser("steward", help="the project steward's core memory (.hydra/steward/core.md)")
+    x.add_argument("action", choices=("init", "set", "show")); x.add_argument("section", nargs="?")
+    x.add_argument("--text"); x.add_argument("--reason"); x.add_argument("--project", default=os.getcwd())
     r = sub.add_parser("route")
     r.add_argument("role"); r.add_argument("--capability"); r.add_argument("--model"); r.add_argument("--json", action="store_true")
     pc = sub.add_parser("policy")
@@ -597,6 +627,47 @@ def _dispatch(ap, a) -> int:
                 print(f"  {t:<20} {st}{after}")
             print(f"  start now: {', '.join(out['start_now']) or 'nothing'}"
                   + ("  — plan complete" if out["done"] else ""))
+        return 0
+    if a.cmd == "skill":
+        project = os.path.abspath(a.project)
+        if a.action == "list":
+            idx = skills.load(project)["skills"]
+            if a.json:
+                print(json.dumps({"schema_version": SCHEMA_VERSION, "skills": idx}))
+            for name, s in sorted(idx.items()) if not a.json else ():
+                ok = sum(o["ok"] for o in s["outcomes"])
+                print(f"{name:<24} {s['state']:<9} v{s['version']} {ok}/{len(s['outcomes'])} ok — {s['description']}")
+            if not idx and not a.json:
+                print("no skills")
+            return 0
+        if not a.name:
+            raise ValueError(f"skill {a.action} needs a NAME")
+        if a.action == "show":
+            print(skills.body(project, a.name))
+            return 0
+        if a.action in ("add", "revise"):
+            if not a.file:
+                raise ValueError(f"skill {a.action} needs --file with the skill's instructions")
+            with open(a.file, encoding="utf-8") as f:
+                text = f.read()
+            s = (skills.add(project, a.name, a.description or "", text, a.paths, a.keywords, a.reason)
+                 if a.action == "add" else skills.revise(project, a.name, text, a.reason))
+        elif a.action == "approve":
+            s = skills.approve(project, a.name, a.reason)
+        else:
+            s = skills.retire(project, a.name, a.reason)
+        print(f"skill {a.name}: {s['state']} (v{s['version']})")
+        return 0
+    if a.cmd == "steward":
+        project = os.path.abspath(a.project)
+        if a.action == "init":
+            print(f"steward memory: {steward.init(project)}")
+        elif a.action == "show":
+            print(steward.core(project) or "no steward memory yet (hydra-pod-dsh steward init)")
+        else:
+            if not a.section or a.text is None:
+                raise ValueError("steward set needs a SECTION and --text")
+            print(f"steward memory: {steward.set_section(project, a.section, a.text, a.reason or '')}")
         return 0
     if a.cmd == "map":
         if a.tokens < 100:
