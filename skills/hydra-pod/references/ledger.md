@@ -35,7 +35,7 @@ Decide as Verifier with a reason: `hydra-pod-dsh wf decide WF-<T> APPROVE|REWORK
 
 ## Findings and recovery
 
-- Findings: after a review, `hydra-pod-dsh wf findings WF-<T>` lists the reviewer's findings with your verdicts (valid, rejected or unverified). None may stay `unverified` when you decide.
+- Findings: after a review, `hydra-pod-dsh wf findings WF-<T>` lists the reviewer's findings, conclusions (`RC-n`) and suggestions (`RS-n`) with your verdicts. None may stay `unverified`: `wf decide APPROVE` is refused (exit 2) until every one is answered.
 - A worker that died: `hydra-pod-dsh wf health WF-<T>` says `stalled` when a build or review has no process and no receipt/report. Then `hydra-pod-dsh wf recover WF-<T> --reason '…'` returns to `ASSIGNING` (or `TESTING` for a review) so the step can be dispatched again. It refuses when the step is not stalled.
 
 ## The user's controls

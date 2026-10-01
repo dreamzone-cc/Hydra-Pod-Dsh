@@ -76,13 +76,16 @@ hydra-pod-dsh wf timeline WF-T6
 | `hydra-pod-dsh policy` | Checks the agent registry (`agents.json`): billing route per role, reviewers read-only, and a manager model different from the workers. Exit 3 on a violation |
 | `hydra-pod-dsh route <role> [--capability C] [--model M]` | The first compliant agent. It refuses a model the runtime cannot select (ZCode, ACP, Claude Code children) |
 | `wf start … --budget-cost/--budget-credits/--budget-minutes/--budget-manager-tokens` | Budgets. Dispatch warns at 80%; at 100% it blocks (exit 3, `BLOCKED` by policy) |
-| `wf findings WF` | The reviewer's findings with the manager's verdicts (valid, rejected or unverified) |
+| `wf findings WF` | The reviewer's findings, conclusions (`RC-n`) and suggestions (`RS-n`) with the manager's verdicts. `wf decide APPROVE` is refused while any of them is unanswered |
 | `wf health WF` / `wf recover WF --reason …` | Detects a stalled build or review, then retries it |
 | `wf manager WF` | The manager's own token usage from the DSH session logs, with its billing route checked. `pi-anthropic` means Claude Pro via OAuth — an operator-approved manager billing route (since 2026-09-30) |
 | `wf stages WF` | Per stage: which model worked (manager, builder, reviewer), its tokens (work = input + output + reasoning; cache apart), its cost or Z.ai credits, and its share of the 5 h / weekly windows with their reset times. The same table is in the popover and in `wf report` |
 | `wf diffsum WF [--task T] [--base REV] [--head REV]` | Deterministic summary of a ticket's change (files, line counts, symbols added or removed, files outside `allowed_files`, new untracked files), so the manager reads the raw diff only where judgment is needed. No model call |
 | `wf brief WF` | Resume brief in under 30 lines: state, counters, unverified findings, recent events and the moves allowed next. For the manager after a context compaction |
 | `bench report [--project DIR …] [--save FILE]` / `bench compare BASE.json NEW.json` | Gate metrics per workflow and their medians (manager work tokens and cache hit ratio, worker tokens, review tokens per 100 changed lines, first-try approval, finding precision, PLAN_READY→DONE time); `compare` shows each metric's change against a baseline |
+| `wf pack WF [--task T] [--tokens N]` | Writes `_receipts/<ticket>.context.md`: the files the ticket changes (whole when small, else an outline), its `read_hints:`, a repository map focused on them, the matching lessons, and the reviewer's request for conclusions (`RC-n`) and suggestions (`RS-n`). The ticket body points to it; Hydra-Pod is unchanged |
+| `map [--focus F …] [--tokens N]` | Ranked outline of the repository's definitions within a token budget (stdlib only: regex extraction, reference graph, personalized PageRank; cached by git state) |
+| `lesson add --text … [--path P] [--tag T] [--wf WF]` / `lesson list` | The project's lessons memory in `_receipts/lessons.md`; matching lessons go into later context packs |
 | `wf check [WF]` | Compares the ledger with the ticket folders (`claim`/`close` move files, `wf` records state). Exit 4 on drift |
 | `wf report WF [--write]` | Closing report from the ledger, the cost log, the review reports and the DSH logs; `--write` saves `_receipts/WF-<T>.report.md` |
 | `/hydra-pod-status`, `/hydra-pod-timeline`, `/hydra-pod-control` | DSH commands (no model message). The control command records your decision in the ledger |

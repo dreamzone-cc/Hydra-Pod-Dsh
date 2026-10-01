@@ -32,13 +32,20 @@ TEST_PATH = re.compile(r"(^|/)(tests?|__tests__|spec)/|(^|/)test_[^/]+$|[._-](te
 HEADER_LIST_KEYS = ("allowed_files",)
 
 
-def ticket_header(project, task: str) -> dict:
-    """`base`, `head` and `allowed_files` from the ticket's header ({} when absent)."""
+def ticket_path(project, task: str) -> Path | None:
+    """`_tickets/<folder>/<task>.md` or `<task>-<slug>.md`, or None."""
     folder = consistency.ticket_folder(project, task)
     if folder is None:
-        return {}
+        return None
     d = Path(project) / "_tickets" / folder
-    path = d / f"{task}.md" if (d / f"{task}.md").exists() else sorted(d.glob(f"{task}-*.md"))[0]
+    return d / f"{task}.md" if (d / f"{task}.md").exists() else sorted(d.glob(f"{task}-*.md"))[0]
+
+
+def ticket_header(project, task: str) -> dict:
+    """The ticket's header: `allowed_files` as a list, every other key as text ({} when absent)."""
+    path = ticket_path(project, task)
+    if path is None:
+        return {}
     text = path.read_text(errors="replace")
     if not text.startswith("---\n") or "\n---\n" not in text[4:]:
         return {}

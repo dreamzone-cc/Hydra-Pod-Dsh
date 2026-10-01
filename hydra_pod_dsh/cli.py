@@ -18,12 +18,17 @@
   hydra-pod-dsh wf brief <WF> [--json]        resume brief: state, counters, open findings, recent events, next moves
   hydra-pod-dsh wf diffsum <WF> [--task T] [--base REV] [--head REV] [--json]
                                               deterministic diff summary (files, symbols, scope) of a ticket's change
+  hydra-pod-dsh wf pack <WF> [--task T] [--tokens N] [--json]
+                                              write the ticket's context pack (_receipts/<ticket>.context.md)
   hydra-pod-dsh wf amend <WF> --field F --reason TEXT [--before X --after Y]   manager corrects its ticket
   hydra-pod-dsh wf check [<WF>] [--json]      ledger vs ticket folders (exit 4 on drift)
   hydra-pod-dsh wf report <WF> [--write]      closing report (Markdown); --write saves _receipts/<WF>.report.md
   hydra-pod-dsh bench report [--project DIR ...] [--save FILE] [--json]
                                               gate metrics per workflow and their medians (technical paper §7.1)
   hydra-pod-dsh bench compare <BASELINE.json> <NEW.json> [--json]   change of each gate metric
+  hydra-pod-dsh map [--focus FILE ...] [--tokens N] [--project DIR]   ranked repository outline
+  hydra-pod-dsh lesson add --text TEXT [--path P ...] [--tag T ...] [--wf WF] [--project DIR]
+  hydra-pod-dsh lesson list [--path P ...] [--text TICKET_TEXT] [--project DIR] [--json]
   hydra-pod-dsh route <role> [--capability C] [--model M] [--json]
   hydra-pod-dsh policy [--json]               registry violations (billing, read-only, role separation)
   exit status: 0 ok, 1 environment error (clean message), 2 refused move or bad input,
@@ -41,7 +46,7 @@ import os
 import sys
 import time
 
-from . import (bench, brief, budget, consistency, diffsum, findings, health, ledger, live, manager_usage, report, resources, router, stages,
+from . import (bench, brief, budget, consistency, diffsum, findings, lessons, pack, repomap, health, ledger, live, manager_usage, report, resources, router, stages,
                tokens, usage, workflow)
 
 SCHEMA_VERSION = 1  # of the JSON printed by `status --json` and `wf ... --json` (§13.3)
@@ -207,6 +212,13 @@ def _wf(a) -> int:
         w = workflow.advance(project, a.workflow, a.state, actor=actor, reason=a.reason)
     elif a.wf == "decide":
         directive = json.loads(a.directive) if a.directive else None
+        if a.decision == "APPROVE":
+            # No finding, conclusion or suggestion may be left unanswered (technical paper §5-c).
+            pending = findings.unverified(findings.summary(project, workflow.get(project, a.workflow).tasks))
+            if pending:
+                raise workflow.TransitionError(
+                    f"{a.workflow}: APPROVE refused: {len(pending)} reviewer item(s) without a manager verdict: "
+                    + "; ".join(pending[:8]) + ("; …" if len(pending) > 8 else ""))
         w = workflow.decide(project, a.workflow, a.decision, a.reason, actor=actor, task_id=a.task,
                             directive=directive)
     elif a.wf == "human":
@@ -239,6 +251,19 @@ def _wf(a) -> int:
         task = a.task or workflow.get(project, a.workflow).task_id
         out = diffsum.summarize(project, task, a.base, a.head)
         print(json.dumps({"schema_version": SCHEMA_VERSION, **out}) if a.json else diffsum.render(out))
+        return 0
+    elif a.wf == "pack":
+        if a.task:
+            workflow.validate_ticket_id(a.task)
+        out = pack.write(project, a.workflow, a.task, a.tokens)
+        if a.json:
+            print(json.dumps({"schema_version": SCHEMA_VERSION, **{k: v for k, v in out.items() if k != "text"}}))
+        else:
+            print(f"{out['path']}: {out['tokens']} tokens (budget {out['budget_tokens']}), "
+                  f"{len(out['files'])} file(s), {len(out['read_hints'])} read hint(s), {out['lessons']} lesson(s), "
+                  f"map of {out['map_files']} file(s)")
+            if not out["ticket_points_to_pack"]:
+                print(f"  add this line to the ticket body: {pack.render_pointer(out)}")
         return 0
     elif a.wf == "amend":
         w = workflow.amend(project, a.workflow, a.reason, field=a.field, before=a.before, after=a.after, actor=actor)
@@ -331,11 +356,14 @@ def _human(kind: str, out: dict) -> str:
         extra = f" (recover to {out['recover_to']})" if out.get("recover_to") else ""
         return f"{out['workflow_id']}: {out['state']} — {out['health']}{extra}"
     if kind == "findings":
-        rows = [f"by severity: {out['by_severity']}", f"by status: {out['by_status']}"]
+        rows = [f"by severity: {out['by_severity']}", f"by status: {out['by_status']}",
+                f"conclusions and suggestions: {out['items'] or 'none'}"]
         for r in out["reports"]:
             rows.append(f"  {r['task_id']} {r['file']}: verdict {r['verdict'] or '-'}, "
                         f"{len(r['findings'])} finding(s), manager verified: {r['manager_verified']}")
             rows += [f"    [{f['severity']}] {f['status']:<10} {f['location']} — {f['problem'][:90]}" for f in r["findings"]]
+            rows += [f"    {i['id']} {i['status']:<14} {i['text'][:90]}" + (f" — {i['reason'][:60]}" if i["reason"] else "")
+                     for i in r["items"]]
         return "\n".join(rows)
     rows = [f"sessions: {', '.join(out['sessions']) or 'none'}"]
     for r in out["by_model"]:
@@ -388,6 +416,9 @@ def main(argv=None) -> int:
     x.add_argument("workflow"); x.add_argument("--task", help="ticket whose header gives base/head/allowed_files")
     x.add_argument("--base"); x.add_argument("--head", help="default: the ticket's head, else the working tree")
     x.add_argument("--json", action="store_true")
+    x = common(wsub.add_parser("pack"))
+    x.add_argument("workflow"); x.add_argument("--task"); x.add_argument("--json", action="store_true")
+    x.add_argument("--tokens", type=int, default=pack.DEFAULT_TOKENS, help="budget of the pack")
     x = common(wsub.add_parser("amend"))
     x.add_argument("workflow"); x.add_argument("--field", required=True); x.add_argument("--reason", required=True)
     x.add_argument("--before"); x.add_argument("--after")
@@ -408,6 +439,17 @@ def main(argv=None) -> int:
     x.add_argument("--json", action="store_true")
     x = bsub.add_parser("compare")
     x.add_argument("baseline"); x.add_argument("new"); x.add_argument("--json", action="store_true")
+    x = sub.add_parser("map", help="ranked repository outline within a token budget")
+    x.add_argument("--project", default=os.getcwd()); x.add_argument("--focus", action="append")
+    x.add_argument("--tokens", type=int, default=1500); x.add_argument("--json", action="store_true")
+    ls = sub.add_parser("lesson", help="the project's lessons memory (_receipts/lessons.md)")
+    lsub = ls.add_subparsers(dest="lesson", required=True)
+    x = lsub.add_parser("add")
+    x.add_argument("--project", default=os.getcwd()); x.add_argument("--text", required=True)
+    x.add_argument("--path", action="append"); x.add_argument("--tag", action="append"); x.add_argument("--wf")
+    x = lsub.add_parser("list")
+    x.add_argument("--project", default=os.getcwd()); x.add_argument("--path", action="append")
+    x.add_argument("--text", default=""); x.add_argument("--json", action="store_true")
     r = sub.add_parser("route")
     r.add_argument("role"); r.add_argument("--capability"); r.add_argument("--model"); r.add_argument("--json", action="store_true")
     pc = sub.add_parser("policy")
@@ -450,6 +492,26 @@ def _dispatch(ap, a) -> int:
         return _wf(a)
     if a.cmd == "bench":
         return _bench(a)
+    if a.cmd == "map":
+        if a.tokens < 100:
+            raise ValueError("--tokens must be at least 100")
+        out = repomap.build(os.path.abspath(a.project), a.focus, a.tokens)
+        print(json.dumps({"schema_version": SCHEMA_VERSION, **out}) if a.json else out["text"])
+        return 0
+    if a.cmd == "lesson":
+        project = os.path.abspath(a.project)
+        if a.lesson == "add":
+            if a.wf:
+                workflow.validate_workflow_id(a.wf)
+            lessons.add(project, a.text, a.path, a.tag, a.wf)
+            print(f"lesson recorded in {lessons.path(project)}")
+            return 0
+        found = lessons.relevant(project, a.path or [], a.text, limit=50) if (a.path or a.text) else lessons.load(project)
+        if a.json:
+            print(json.dumps({"schema_version": SCHEMA_VERSION, "lessons": found}))
+        else:
+            print("\n".join(f"{x['date']} {x['workflow_id']}: {x['text']}" for x in found) or "no lessons")
+        return 0
     if a.cmd == "route":
         try:
             r = router.route(a.role, a.capability, a.model)

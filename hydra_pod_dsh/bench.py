@@ -21,6 +21,7 @@ GATES = {"manager_work_tokens": ("manager work tokens", True),
          "review_tokens_per_100_lines": ("review tokens / 100 changed lines", True),
          "first_try_rate": ("first-try approval rate", False),
          "finding_precision": ("reviewer finding precision", False),
+         "reviewer_item_acceptance": ("reviewer conclusions/suggestions accepted", False),
          "plan_to_done_seconds": ("PLAN_READY → DONE seconds", True)}
 
 
@@ -54,7 +55,10 @@ def workflow_metrics(project, w: "workflow.Workflow") -> dict:
     mt = tokens.zero()
     for row in m["by_model"]:
         mt = tokens.add(mt, row["tokens"])
-    st = findings.summary(project, w.tasks)["by_status"]
+    fs = findings.summary(project, w.tasks)
+    st = fs["by_status"]
+    taken = sum(n for k, n in fs["items"].items() if k.split(":")[1] in ("accepted", "adopt-now", "backlog"))
+    answered = sum(n for k, n in fs["items"].items() if k.split(":")[1] != "unverified")
     judged = st["valid"] + st["partial"] + st["rejected"]
     lines = changed_lines(project, heads[0] if heads else None, heads[-1] if heads else None)
     reviewer = roles.get("reviewer")
@@ -67,6 +71,7 @@ def workflow_metrics(project, w: "workflow.Workflow") -> dict:
             "changed_lines": lines,
             "review_tokens_per_100_lines": round(100 * reviewer / lines, 1) if reviewer and lines else None,
             "finding_precision": round((st["valid"] + st["partial"]) / judged, 3) if judged else None,
+            "reviewer_item_acceptance": round(taken / answered, 3) if answered else None,
             "plan_to_done_seconds": round(at["DONE"] - at["PLAN_READY"], 1)
             if "DONE" in at and "PLAN_READY" in at else None}
 

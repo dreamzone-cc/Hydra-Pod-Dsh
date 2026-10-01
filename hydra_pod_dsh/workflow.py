@@ -63,7 +63,9 @@ FOLDER = {**{s: "open" for s in ("NEW", "PLANNING", "PLAN_READY")},
 EVENT_TYPES = frozenset({"hydra/workflow-created", "hydra/workflow-state", "hydra/verification-decision",
                          "hydra/task-created", "hydra/agent-started", "hydra/agent-completed",
                          "hydra/human-decision", "hydra/resource-usage", "hydra/checkpoint-created",
-                         "hydra/policy-decision", "hydra/task-amended"})
+                         "hydra/policy-decision", "hydra/task-amended",
+                         # informational, written ignorable so older readers skip them (phase 2)
+                         "hydra/context-pack"})
 STATE_EVENTS = frozenset({"hydra/workflow-state", "hydra/verification-decision", "hydra/human-decision",
                           "hydra/policy-decision"})
 BUDGET_KEYS = ("max_cost_usd", "max_zai_credits", "max_runtime_minutes", "max_manager_tokens")
@@ -305,14 +307,14 @@ def human(project, wid: str, action: str, reason: str, *, to: str | None = None)
 
 
 def record(project, wid: str, etype: str, *, actor: dict | None = None, payload: dict | None = None,
-           reason: str | None = None) -> dict:
+           reason: str | None = None, ignorable: bool = False) -> dict:
     """Non-state facts: agent start/finish, resource usage, checkpoints."""
     if etype not in EVENT_TYPES or etype == "hydra/workflow-created" or etype in STATE_EVENTS:
         raise TransitionError(f"{etype} cannot be recorded directly")
     with ledger.transaction(project) as txn:
         w = _require(fold(txn.events(EVENT_TYPES)), project, wid)
         return txn.append(etype, workflow_id=wid, task_id=w.task_id, actor=actor,
-                          reason=reason, payload=payload)
+                          reason=reason, payload=payload, ignorable=ignorable)
 
 
 def amend(project, wid: str, reason: str, *, field: str, before: str | None = None, after: str | None = None,

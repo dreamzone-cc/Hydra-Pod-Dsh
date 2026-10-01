@@ -31,6 +31,8 @@ def build(project, wid: str) -> dict:
     open_items = [{"task": r["task_id"], "severity": f["severity"], "location": f["location"],
                    "problem": f["problem"][:100]}
                   for r in fs["reports"] for f in r["findings"] if f["status"] == "unverified"]
+    open_items += [{"task": r["task_id"], "severity": i["id"], "location": i["kind"], "problem": i["text"][:100]}
+                   for r in fs["reports"] for i in r["items"] if i["status"] == "unverified"]
     b = budget.check(project, wid) if w.budget else None
     amended = [e for e in events if e["type"] == "hydra/task-amended"]
     return {"workflow": w.to_dict(), "next": next_moves(w), "findings": {"by_status": fs["by_status"],
