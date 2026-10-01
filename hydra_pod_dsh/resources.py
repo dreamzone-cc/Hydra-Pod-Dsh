@@ -12,10 +12,12 @@ from pathlib import Path
 
 from . import tokens, workflow
 
-ROLE = {"build": "executor", "review": "reviewer"}
+ROLE = {"build": "executor", "review": "reviewer", "consult": "advisor"}
 BILLING = {"opencode-go": "subscription/opencode-go",
            "opencode/zai-coding-plan": "subscription/zai-lite",
-           "zcode-lite": "subscription/zai-lite"}
+           "zcode-lite": "subscription/zai-lite",
+           "claude-cli": "subscription/claude-code",          # phase 5, run by hydra-pod-dsh run/consult
+           "opencode/openrouter": "api/openrouter"}
 KEYS = ("seconds", "tool_calls", "list_cost_usd", "zai_credits")
 
 

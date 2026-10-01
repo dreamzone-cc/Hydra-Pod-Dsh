@@ -34,7 +34,8 @@ def registry() -> dict:
         {"agent": "builder", "tier": "fast", "for": ["S", "M"]},
         {"agent": "builder-strong", "tier": "strong", "for": ["L"]},
     ]
-    reg["pools"]["reviewer"]["stages"].append({"agent": "reviewer-second", "when": ["risk:high", "disagreement"]})
+    reg["pools"]["reviewer"]["stages"] = [reg["pools"]["reviewer"]["stages"][0],
+                                          {"agent": "reviewer-second", "when": ["risk:high", "disagreement"]}]
     return reg
 
 
@@ -167,9 +168,12 @@ class ReviewPlanTest(unittest.TestCase):
         self.assertEqual(self.stages(risk="high", second="never"), [(1, True, "reviewer"), (2, False, "reviewer-second")])
         self.assertEqual(self.stages(second="always")[1][1], True)
 
-    def test_shipped_registry_has_one_stage(self):
+    def test_shipped_registry_second_stage_is_claude_on_high_risk(self):
         plan = router.review_plan("high", {"reports": []}, None, None, FREE, UP)
-        self.assertEqual([(s["stage"], s["agent"]) for s in plan], [(1, "reviewer")])
+        self.assertEqual([(s["stage"], s["needed"], s["agent"]) for s in plan],
+                         [(1, True, "reviewer"), (2, True, "reviewer-claude")])
+        plan = router.review_plan("low", {"reports": []}, None, None, FREE, UP)
+        self.assertFalse(plan[1]["needed"])
 
 
 class ProfileTest(unittest.TestCase):

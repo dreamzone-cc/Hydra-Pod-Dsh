@@ -25,6 +25,29 @@ from pathlib import Path
 REGISTRY = Path(__file__).resolve().parent.parent / "agents.json"
 WHEN = ("always", "risk:high", "disagreement", "never")
 COMPLEXITY_RANK = {"S": 0, "M": 1, "L": 2}
+STRATEGIES = ("score", "cascade", "panel")
+READ_ONLY_ROLES = ("reviewer", "advisor")   # roles whose agents may never change the code
+
+
+def accepts(pool_role: str, pool: dict | None, a: dict) -> bool:
+    """Whether agent `a` may serve in the pool of `pool_role`.
+
+    By default an agent serves its own role, and a code-reviewing specialist may
+    review. A pool can widen that with `accepts: {roles, capability}`, e.g. a
+    tester pool of executors that can write tests."""
+    acc = (pool or {}).get("accepts")
+    if acc:
+        return a["role"] in acc.get("roles", []) and (not acc.get("capability")
+                                                      or acc["capability"] in a.get("capabilities", []))
+    if a["role"] == pool_role:
+        return True
+    return pool_role == "reviewer" and a["role"] == "specialist" and "code-review" in a.get("capabilities", [])
+
+
+def needs_read_only(pool_role: str, pool: dict | None) -> bool:
+    acc = (pool or {}).get("accepts") or {}
+    return pool_role in READ_ONLY_ROLES or pool_role == "security" or \
+        any(r in READ_ONLY_ROLES for r in acc.get("roles", []))
 
 
 class PolicyError(Exception):
@@ -78,8 +101,8 @@ def violations(reg: dict | None = None) -> list[str]:
             out.append(f"{name}: billing {a['billing']} is forbidden")
         if a["runtime"] not in reg["runtimes"]:
             out.append(f"{name}: unknown runtime {a['runtime']}")
-        if a["role"] == "reviewer" and not a.get("read_only"):
-            out.append(f"{name}: reviewer without enforced read-only")
+        if a["role"] in READ_ONLY_ROLES and not a.get("read_only"):
+            out.append(f"{name}: {a['role']} without enforced read-only")
     managers = {a["model"] for a in by_role.get("manager", [])}
     for role in ("executor", "reviewer"):
         for a in by_role.get(role, []):
@@ -103,8 +126,8 @@ def pool_violations(reg: dict) -> list[str]:
     out, agents = [], reg["agents"]
     executor_vendors = {a.get("vendor") for a in agents.values() if a["role"] == "executor"}
     for role, pool in reg.get("pools", {}).items():
-        if pool.get("strategy") not in ("score", "cascade"):
-            out.append(f"pool {role}: strategy must be score or cascade")
+        if pool.get("strategy") not in STRATEGIES:
+            out.append(f"pool {role}: strategy must be one of {STRATEGIES}")
         for i, m in enumerate(_members(pool)):
             for name in [m.get("agent")] + list(m.get("fallback", [])):
                 a = agents.get(name)
@@ -112,10 +135,9 @@ def pool_violations(reg: dict) -> list[str]:
                     out.append(f"pool {role}: unknown agent {name!r}")
                     continue
                 reviewing = role == "reviewer"
-                if a["role"] != role and not (reviewing and a["role"] == "specialist"
-                                              and "code-review" in a.get("capabilities", [])):
+                if not accepts(role, pool, a):
                     out.append(f"pool {role}: {name} has role {a['role']}")
-                if reviewing and not a.get("read_only"):
+                if needs_read_only(role, pool) and not a.get("read_only"):
                     out.append(f"pool {role}: {name} has no enforced read-only")
                 if reviewing and i > 0 and (not a.get("vendor") or a.get("vendor") in executor_vendors):
                     out.append(f"pool {role} stage {i + 1}: {name} must come from a vendor other than the "
@@ -129,17 +151,18 @@ def pool_violations(reg: dict) -> list[str]:
 
 
 def _passes(name: str, a: dict, role: str, reg: dict) -> str | None:
-    """Why an agent fails a hard constraint for `role`, or None."""
+    """Why an agent fails a hard constraint for the pool of `role`, or None.
+
+    Billing is always checked against the agent's own role: a pool can borrow
+    an agent, never widen what that agent may be billed to."""
     pol = reg["policy"]
-    if a["role"] != role and not (role == "reviewer" and a["role"] == "specialist"
-                                  and "code-review" in a.get("capabilities", [])):
+    pool = reg.get("pools", {}).get(role)
+    if not accepts(role, pool, a):
         return f"role {a['role']} cannot serve as {role}"
-    as_role = "reviewer" if role == "reviewer" else a["role"]
-    allowed = pol["allowed_billing"].get(a["role"], []) if a["role"] == "specialist" else \
-        pol["allowed_billing"].get(as_role, [])
+    allowed = pol["allowed_billing"].get(a["role"], [])
     if a["billing"] not in allowed or a["billing"] in pol["forbidden_billing"]:
         return f"billing {a['billing']} not allowed"
-    if role == "reviewer" and not a.get("read_only"):
+    if needs_read_only(role, pool) and not a.get("read_only"):
         return "no enforced read-only"
     return None
 
@@ -157,7 +180,7 @@ def choose(role: str, complexity: str | None = None, reg: dict | None = None, qu
     pool = reg.get("pools", {}).get(role)
     if pool is None:  # a v1 registry, or a role without a pool
         return {**route(role, reg=reg), "considered": [], "pool": None}
-    members = _members(pool)[:1] if pool.get("strategy") == "cascade" else _members(pool)
+    members = _members(pool)[:1] if pool.get("strategy") == "cascade" else _members(pool)  # panel: ranked like score
     entries = []
     for order, m in enumerate(members):
         for k, name in enumerate([m["agent"]] + list(m.get("fallback", []))):
