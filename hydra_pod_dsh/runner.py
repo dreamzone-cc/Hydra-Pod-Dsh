@@ -70,6 +70,11 @@ def consult_prompt(question: str, context_files: list[str]) -> str:
             .replace("<context files>", ", ".join(context_files) or "none"))
 
 
+def keeper_prompt(shard: dict, question: str) -> str:
+    return (template("keeper.md").replace("<now>", now_iso()).replace("<shard>", shard["id"])
+            .replace("<files>", "\n".join(f"- {f}" for f in shard["files"])).replace("<question>", question.strip()))
+
+
 def _claude(project, prompt: str, model: str, raw: Path, max_budget: float | None) -> dict:
     cmd = ["claude", "-p", prompt, "--model", model, "--tools", CLAUDE_TOOLS, "--permission-mode", "dontAsk",
            "--output-format", "json", "--no-session-persistence", "--strict-mcp-config"]
@@ -138,6 +143,13 @@ def _opencode(project, prompt: str, model: str, raw: Path) -> dict:
 PROVIDER = {"claude-cli": "claude-cli", "opencode": "opencode/openrouter"}
 
 
+def provider_of(agent: dict) -> str:
+    """The cost log's provider name, which resources.py maps to a billing route."""
+    if agent["runtime"] == "opencode" and agent["model"].startswith("zai-coding-plan/"):
+        return "opencode/zai-coding-plan"   # Hydra-Pod's own name for the Z.ai subscription route
+    return PROVIDER[agent["runtime"]]
+
+
 def run(project, agent_name: str, agent: dict, prompt: str, report: Path, cost_task: str, phase: str,
         max_budget: float | None = None) -> dict:
     """Run one read-only agent, write its report and one cost-log line. Returns the run's record."""
@@ -150,7 +162,7 @@ def run(project, agent_name: str, agent: dict, prompt: str, report: Path, cost_t
         res = _opencode(project, prompt, agent["model"], raw)
     else:
         raise RunError(f"runtime {agent['runtime']} is not run by hydra-pod-dsh")
-    entry = {"at": now_iso(), "phase": phase, "provider": PROVIDER[agent["runtime"]], "model": agent["model"],
+    entry = {"at": now_iso(), "phase": phase, "provider": provider_of(agent), "model": agent["model"],
              "agent": agent_name, "exit": res["exit"], "seconds": res["seconds"], "tool_calls": res["tool_calls"],
              "tokens": res["tokens"], "list_cost_usd": res["list_cost_usd"]}
     with open(rec / f"{cost_task}.costs.jsonl", "a") as f:

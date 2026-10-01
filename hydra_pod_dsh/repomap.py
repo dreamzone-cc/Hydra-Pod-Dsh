@@ -127,16 +127,13 @@ def index(project) -> dict:
     return out
 
 
-def rank(idx: dict, focus: list[str] | None = None, iterations: int = 30, damping: float = 0.85) -> dict[str, float]:
-    """PageRank over the reference graph, personalized toward `focus` files when given."""
-    files = list(idx)
-    if not files:
-        return {}
+def edges(idx: dict) -> dict[str, dict[str, float]]:
+    """The reference graph: edges[A][B] > 0 when A uses a name defined in B (weighted by use)."""
     defined_in: dict[str, set] = {}
     for f, d in idx.items():
         for x in d["defs"]:
             defined_in.setdefault(x["name"], set()).add(f)
-    edges: dict[str, dict[str, float]] = {f: {} for f in files}
+    out: dict[str, dict[str, float]] = {f: {} for f in idx}
     for f, d in idx.items():
         for name, count in d["refs"].items():
             targets = defined_in.get(name)
@@ -144,7 +141,16 @@ def rank(idx: dict, focus: list[str] | None = None, iterations: int = 30, dampin
                 continue
             for t in targets:
                 if t != f:
-                    edges[f][t] = edges[f].get(t, 0) + count ** 0.5
+                    out[f][t] = out[f].get(t, 0) + count ** 0.5
+    return out
+
+
+def rank(idx: dict, focus: list[str] | None = None, iterations: int = 30, damping: float = 0.85) -> dict[str, float]:
+    """PageRank over the reference graph, personalized toward `focus` files when given."""
+    files = list(idx)
+    if not files:
+        return {}
+    edges_ = edges(idx)
     focus = [f for f in (focus or []) if f in idx]
     personal = {f: (1.0 / len(focus) if f in focus else 0.0) for f in files} if focus else \
         {f: 1.0 / len(files) for f in files}
@@ -153,7 +159,7 @@ def rank(idx: dict, focus: list[str] | None = None, iterations: int = 30, dampin
         nxt = {f: (1 - damping) * personal[f] for f in files}
         sink = 0.0
         for f in files:
-            out = edges[f]
+            out = edges_[f]
             total = sum(out.values())
             if not total:
                 sink += score[f]
