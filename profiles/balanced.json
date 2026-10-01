@@ -1,0 +1,5 @@
+{
+  "name": "balanced",
+  "description": "Default: a second review stage only where the reviewer pool's own rules ask for it (high risk, or the manager overruled the reviewer).",
+  "second_review": null
+}

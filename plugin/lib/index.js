@@ -86,6 +86,7 @@ function defaultRun() {
 
 const WF_ID = /^WF-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 const ACTIONS = new Set(['cancel', 'pause', 'resume', 'approve', 'reject'])
+const PROFILE = /^[a-z0-9][a-z0-9-]{0,31}$/
 
 /** argv for one command line, or an error string. Pure, so it is unit-tested. */
 export function commandArgs(name, rawInput) {
@@ -103,6 +104,11 @@ export function commandArgs(name, rawInput) {
       return 'usage: /hydra-pod-control WF-<ticket> cancel|pause|resume|approve|reject <reason>'
     }
     return ['wf', 'human', wf, action, '--reason', reason.join(' ')]
+  }
+  if (name === 'hydra-pod-profile') {
+    if (!words.length) return ['profile', 'list']
+    if (words.length === 1 && PROFILE.test(words[0])) return ['profile', 'set', words[0]]
+    return 'usage: /hydra-pod-profile [economy|balanced|max-quality]'
   }
   return 'unknown command'
 }
@@ -132,6 +138,8 @@ export function apply(ctx) {
       ['hydra-pod-timeline', 'Hydra-Pod: workflow timeline from the project ledger', '[WF-<ticket>]'],
       ['hydra-pod-control', 'Hydra-Pod: your decision on a workflow (recorded in the ledger)',
         'WF-<ticket> cancel|pause|resume|approve|reject <reason>'],
+      ['hydra-pod-profile', 'Hydra-Pod: show or set the team profile (how much the pod may spend)',
+        '[economy|balanced|max-quality]'],
     ]
     for (const [cmd, description, hint] of specs) {
       cmdCtx.commands.register({

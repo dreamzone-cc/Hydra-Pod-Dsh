@@ -8,12 +8,23 @@ Hard constraints, checked before any preference:
 4. a Reviewer runs under enforced read-only.
 `classify_provider` maps a DSH session provider id to a billing route so the
 Manager's real route (seen in its session log) can be checked too.
+
+Registry v2 (technical paper §5, phase 3) adds pools: several agents per role.
+`choose` keeps every hard constraint above, then ranks the pool's members by
+the ticket's complexity, the agent's availability on this machine and its
+subscription window (adapters.py), and the pool's fallback order. A reviewer
+pool is a cascade: `review_plan` says which stages a ticket needs (always, on
+high risk, or when the manager overruled the reviewer on a serious point).
+Extensions add agents and pools in agents.d/*.json; they cannot change the
+policy, and their agents pass the same checks.
 """
 
 import json
 from pathlib import Path
 
 REGISTRY = Path(__file__).resolve().parent.parent / "agents.json"
+WHEN = ("always", "risk:high", "disagreement", "never")
+COMPLEXITY_RANK = {"S": 0, "M": 1, "L": 2}
 
 
 class PolicyError(Exception):
@@ -21,7 +32,22 @@ class PolicyError(Exception):
 
 
 def load(path: Path | None = None) -> dict:
-    return json.loads((path or REGISTRY).read_text())
+    """The registry, with agents.d/*.json merged in (sorted by file name)."""
+    path = path or REGISTRY
+    reg = json.loads(path.read_text())
+    reg.setdefault("pools", {})
+    reg["_extensions"] = []
+    for ext in sorted((path.parent / "agents.d").glob("*.json")):
+        data = json.loads(ext.read_text())
+        reg["_extensions"].append({"file": ext.name, "sets_policy": "policy" in data,
+                                   "duplicates": sorted(set(data.get("agents", {})) & set(reg["agents"]))})
+        for name, agent in data.get("agents", {}).items():
+            reg["agents"].setdefault(name, {**agent, "source": ext.name})
+        for role, pool in data.get("pools", {}).items():
+            reg["pools"][role] = pool
+        for name, rt in data.get("runtimes", {}).items():
+            reg["runtimes"].setdefault(name, rt)
+    return reg
 
 
 def classify_provider(provider: str | None) -> str:
@@ -59,7 +85,166 @@ def violations(reg: dict | None = None) -> list[str]:
         for a in by_role.get(role, []):
             if a["model"] in managers:
                 out.append(f"manager model {a['model']} is also a {role}")
+    for ext in reg.get("_extensions", []):
+        if ext["sets_policy"]:
+            out.append(f"agents.d/{ext['file']}: only agents.json may set the policy (ignored)")
+        for name in ext["duplicates"]:
+            out.append(f"agents.d/{ext['file']}: agent {name} already exists (the agents.json entry is kept)")
+    out += pool_violations(reg)
     return out
+
+
+def _members(pool: dict) -> list[dict]:
+    return pool.get("members") or pool.get("stages") or []
+
+
+def pool_violations(reg: dict) -> list[str]:
+    """Pools reference real agents of the right role; a later review stage is independent of the executor."""
+    out, agents = [], reg["agents"]
+    executor_vendors = {a.get("vendor") for a in agents.values() if a["role"] == "executor"}
+    for role, pool in reg.get("pools", {}).items():
+        if pool.get("strategy") not in ("score", "cascade"):
+            out.append(f"pool {role}: strategy must be score or cascade")
+        for i, m in enumerate(_members(pool)):
+            for name in [m.get("agent")] + list(m.get("fallback", [])):
+                a = agents.get(name)
+                if a is None:
+                    out.append(f"pool {role}: unknown agent {name!r}")
+                    continue
+                reviewing = role == "reviewer"
+                if a["role"] != role and not (reviewing and a["role"] == "specialist"
+                                              and "code-review" in a.get("capabilities", [])):
+                    out.append(f"pool {role}: {name} has role {a['role']}")
+                if reviewing and not a.get("read_only"):
+                    out.append(f"pool {role}: {name} has no enforced read-only")
+                if reviewing and i > 0 and (not a.get("vendor") or a.get("vendor") in executor_vendors):
+                    out.append(f"pool {role} stage {i + 1}: {name} must come from a vendor other than the "
+                               f"executor's ({', '.join(sorted(v for v in executor_vendors if v))})")
+            bad = [w for w in m.get("when", []) if w not in WHEN]
+            if bad:
+                out.append(f"pool {role}: unknown when {bad} (one of {WHEN})")
+            if m.get("for") and any(c not in COMPLEXITY_RANK for c in m["for"]):
+                out.append(f"pool {role}: 'for' must list S, M or L")
+    return out
+
+
+def _passes(name: str, a: dict, role: str, reg: dict) -> str | None:
+    """Why an agent fails a hard constraint for `role`, or None."""
+    pol = reg["policy"]
+    if a["role"] != role and not (role == "reviewer" and a["role"] == "specialist"
+                                  and "code-review" in a.get("capabilities", [])):
+        return f"role {a['role']} cannot serve as {role}"
+    as_role = "reviewer" if role == "reviewer" else a["role"]
+    allowed = pol["allowed_billing"].get(a["role"], []) if a["role"] == "specialist" else \
+        pol["allowed_billing"].get(as_role, [])
+    if a["billing"] not in allowed or a["billing"] in pol["forbidden_billing"]:
+        return f"billing {a['billing']} not allowed"
+    if role == "reviewer" and not a.get("read_only"):
+        return "no enforced read-only"
+    return None
+
+
+def choose(role: str, complexity: str | None = None, reg: dict | None = None, quota=None,
+           available=None) -> dict:
+    """The best agent of a role's pool for a ticket: hard constraints, then rank.
+
+    `quota(agent) -> {"exhausted", "percent", ...}` and `available(agent) -> (ok, why)`
+    default to the runtime's adapter; tests pass their own."""
+    from . import adapters
+    reg = reg or load()
+    if complexity and complexity not in COMPLEXITY_RANK:
+        raise PolicyError(f"complexity must be S, M or L, not {complexity!r}")
+    pool = reg.get("pools", {}).get(role)
+    if pool is None:  # a v1 registry, or a role without a pool
+        return {**route(role, reg=reg), "considered": [], "pool": None}
+    members = _members(pool)[:1] if pool.get("strategy") == "cascade" else _members(pool)
+    entries = []
+    for order, m in enumerate(members):
+        for k, name in enumerate([m["agent"]] + list(m.get("fallback", []))):
+            entries.append((order, k, m, name))
+    considered, ok = [], []
+    for order, k, m, name in entries:
+        a = reg["agents"].get(name)
+        why = "unknown agent" if a is None else _passes(name, a, role, reg)
+        if not why and complexity and m.get("for") and complexity not in m["for"]:
+            why = f"not for complexity {complexity} (for {', '.join(m['for'])})"
+        q = None
+        if not why:
+            ad = adapters.for_runtime(a["runtime"])
+            if ad is None:
+                why = f"no adapter for runtime {a['runtime']}"
+            else:
+                up, reason = (available or ad.available)(a)
+                if not up:
+                    why = reason
+                else:
+                    q = (quota or ad.quota)(a)
+                    if q.get("exhausted"):
+                        why = f"subscription window at {q['percent']}% ({q['source']})"
+        considered.append({"agent": name, "ok": not why, "why": why, "quota": q})
+        if not why:
+            fit = 0 if not (complexity and m.get("tier")) else \
+                abs(COMPLEXITY_RANK[complexity] - (2 if m["tier"] == "strong" else 0))
+            ok.append(((m.get("fallback_order", order), k, fit, (q or {}).get("percent") or 0), name))
+    if not ok:
+        raise PolicyError(f"no available agent for role {role!r}"
+                          + "; " + "; ".join(f"{c['agent']}: {c['why']}" for c in considered))
+    ok.sort()
+    name = ok[0][1]
+    return {"agent": name, **reg["agents"][name], "considered": considered, "pool": role}
+
+
+def disagreement(fsummary: dict) -> bool:
+    """The manager overruled the reviewer on a serious point: a rejected high/critical finding or conclusion."""
+    for r in fsummary.get("reports", []):
+        if any(f["status"] == "rejected" and f["severity"] in ("critical", "high") for f in r["findings"]):
+            return True
+        if any(i["status"] == "rejected" and i["kind"] == "conclusion" for i in r.get("items", [])):
+            return True
+    return False
+
+
+def review_plan(risk: str | None, fsummary: dict, reg: dict | None = None, second_review: str | None = None,
+                quota=None, available=None) -> list[dict]:
+    """Which review stages this ticket needs, each with the agent that would run it.
+
+    `second_review` comes from the active profile: "never", "always", or None
+    to use each stage's own `when`."""
+    reg = reg or load()
+    pool = reg.get("pools", {}).get("reviewer")
+    if not pool or pool.get("strategy") != "cascade":
+        return [{"stage": 1, "needed": True, "why": "always", **_pick(["reviewer"], reg, quota, available, True)}]
+    plan = []
+    disagree = disagreement(fsummary)
+    for i, st in enumerate(pool["stages"]):
+        when = st.get("when", ["always"])
+        if i > 0 and second_review in ("never", "always"):
+            when = [second_review]
+        reasons = [w for w in when if w == "always" or (w == "risk:high" and risk == "high")
+                   or (w == "disagreement" and disagree)]
+        plan.append({"stage": i + 1, "needed": bool(reasons), "why": ", ".join(reasons) or f"not needed ({', '.join(when)})",
+                     **_pick([st["agent"]] + list(st.get("fallback", [])), reg, quota, available, bool(reasons))})
+    return plan
+
+
+def _pick(names: list[str], reg: dict, quota, available, needed: bool) -> dict:
+    from . import adapters
+    tried = []
+    for name in names:
+        a = reg["agents"].get(name)
+        why = "unknown agent" if a is None else _passes(name, a, "reviewer", reg)
+        ad = None if why else adapters.for_runtime(a["runtime"])
+        if not why and ad is None:
+            why = f"no adapter for runtime {a['runtime']}"
+        if not why and needed:
+            up, reason = (available or ad.available)(a)
+            q = None if not up else (quota or ad.quota)(a)
+            why = reason if not up else (f"subscription window at {q['percent']}%" if q.get("exhausted") else None)
+        if not why:
+            return {"agent": name, "runtime": a["runtime"], "model": a["model"], "billing": a["billing"],
+                    "tried": tried}
+        tried.append({"agent": name, "why": why})
+    return {"agent": None, "tried": tried}
 
 
 def route(role: str, capability: str | None = None, model: str | None = None,

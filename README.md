@@ -73,7 +73,7 @@ hydra-pod-dsh wf timeline WF-T6
 
 | Command | What it does |
 |---|---|
-| `hydra-pod-dsh policy` | Checks the agent registry (`agents.json`): billing route per role, reviewers read-only, and a manager model different from the workers. Exit 3 on a violation |
+| `hydra-pod-dsh policy` | Checks the agent registry (`agents.json` plus extensions in `agents.d/*.json`, which may add agents and pools but never change the policy): billing route per role, reviewers read-only, a manager model different from the workers, pools that name real agents of the right role, and a later review stage from a vendor other than the executor's. Exit 3 on a violation |
 | `hydra-pod-dsh route <role> [--capability C] [--model M]` | The first compliant agent. It refuses a model the runtime cannot select (ZCode, ACP, Claude Code children) |
 | `wf start … --budget-cost/--budget-credits/--budget-minutes/--budget-manager-tokens` | Budgets. Dispatch warns at 80%; at 100% it blocks (exit 3, `BLOCKED` by policy) |
 | `wf findings WF` | The reviewer's findings, conclusions (`RC-n`) and suggestions (`RS-n`) with the manager's verdicts. `wf decide APPROVE` is refused while any of them is unanswered |
@@ -86,6 +86,9 @@ hydra-pod-dsh wf timeline WF-T6
 | `wf pack WF [--task T] [--tokens N]` | Writes `_receipts/<ticket>.context.md`: the files the ticket changes (whole when small, else an outline), its `read_hints:`, a repository map focused on them, the matching lessons, and the reviewer's request for conclusions (`RC-n`) and suggestions (`RS-n`). The ticket body points to it; Hydra-Pod is unchanged |
 | `map [--focus F …] [--tokens N]` | Ranked outline of the repository's definitions within a token budget (stdlib only: regex extraction, reference graph, personalized PageRank; cached by git state) |
 | `lesson add --text … [--path P] [--tag T] [--wf WF]` / `lesson list` | The project's lessons memory in `_receipts/lessons.md`; matching lessons go into later context packs |
+| `pick <role> [--complexity S\|M\|L] [--wf WF]` | The best available agent of the role's pool (registry v2): hard policy constraints first, then the ticket's complexity, the agent's availability on this machine and its subscription window, and the pool's fallback order. `--wf` records the choice (`hydra/route-decision`) |
+| `wf reviewers WF` | The review cascade for this ticket: which stages run (always, on `risk: high`, or when the manager rejected a high finding or a conclusion), who runs each, and the dispatch command |
+| `profile list\|show\|set NAME` / `/hydra-pod-profile` | The project's team profile in `.hydra/profile`: `economy` (never a second review), `balanced` (default), `max-quality` (every stage). A profile never widens the policy |
 | `wf check [WF]` | Compares the ledger with the ticket folders (`claim`/`close` move files, `wf` records state). Exit 4 on drift |
 | `wf report WF [--write]` | Closing report from the ledger, the cost log, the review reports and the DSH logs; `--write` saves `_receipts/WF-<T>.report.md` |
 | `/hydra-pod-status`, `/hydra-pod-timeline`, `/hydra-pod-control` | DSH commands (no model message). The control command records your decision in the ledger |

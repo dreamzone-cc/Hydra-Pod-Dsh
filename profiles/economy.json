@@ -1,0 +1,5 @@
+{
+  "name": "economy",
+  "description": "Fewest tokens: one review stage, never a second opinion.",
+  "second_review": "never"
+}

@@ -20,6 +20,7 @@
                                               deterministic diff summary (files, symbols, scope) of a ticket's change
   hydra-pod-dsh wf pack <WF> [--task T] [--tokens N] [--json]
                                               write the ticket's context pack (_receipts/<ticket>.context.md)
+  hydra-pod-dsh wf reviewers <WF> [--task T] [--json]   review stages this ticket needs, and who runs each
   hydra-pod-dsh wf amend <WF> --field F --reason TEXT [--before X --after Y]   manager corrects its ticket
   hydra-pod-dsh wf check [<WF>] [--json]      ledger vs ticket folders (exit 4 on drift)
   hydra-pod-dsh wf report <WF> [--write]      closing report (Markdown); --write saves _receipts/<WF>.report.md
@@ -29,6 +30,9 @@
   hydra-pod-dsh map [--focus FILE ...] [--tokens N] [--project DIR]   ranked repository outline
   hydra-pod-dsh lesson add --text TEXT [--path P ...] [--tag T ...] [--wf WF] [--project DIR]
   hydra-pod-dsh lesson list [--path P ...] [--text TICKET_TEXT] [--project DIR] [--json]
+  hydra-pod-dsh pick <role> [--complexity S|M|L] [--wf WF] [--project DIR] [--json]
+                                              best available agent of the role's pool (quota-aware); --wf records it
+  hydra-pod-dsh profile list|show|set [NAME] [--project DIR]   team profile (economy, balanced, max-quality)
   hydra-pod-dsh route <role> [--capability C] [--model M] [--json]
   hydra-pod-dsh policy [--json]               registry violations (billing, read-only, role separation)
   exit status: 0 ok, 1 environment error (clean message), 2 refused move or bad input,
@@ -46,7 +50,7 @@ import os
 import sys
 import time
 
-from . import (bench, brief, budget, consistency, diffsum, findings, lessons, pack, repomap, health, ledger, live, manager_usage, report, resources, router, stages,
+from . import (adapters, bench, brief, budget, consistency, diffsum, findings, lessons, pack, profiles, repomap, health, ledger, live, manager_usage, report, resources, router, stages,
                tokens, usage, workflow)
 
 SCHEMA_VERSION = 1  # of the JSON printed by `status --json` and `wf ... --json` (§13.3)
@@ -265,6 +269,30 @@ def _wf(a) -> int:
             if not out["ticket_points_to_pack"]:
                 print(f"  add this line to the ticket body: {pack.render_pointer(out)}")
         return 0
+    elif a.wf == "reviewers":
+        if a.task:
+            workflow.validate_ticket_id(a.task)
+        w = workflow.get(project, a.workflow)
+        task = a.task or w.task_id
+        risk = (diffsum.ticket_header(project, task).get("risk") or "").lower() or None
+        prof = profiles.active(project)
+        plan = router.review_plan(risk, findings.summary(project, w.tasks), second_review=prof["second_review"])
+        reg = router.load()
+        for st in plan:
+            if st["agent"]:
+                st["dispatch"] = adapters.for_runtime(st["runtime"]).dispatch(reg["agents"][st["agent"]], "reviewer", task)
+        if a.json:
+            print(json.dumps({"schema_version": SCHEMA_VERSION, "task": task, "risk": risk, "profile": prof["name"],
+                              "stages": plan}))
+        else:
+            print(f"{task}: risk {risk or '-'}, profile {prof['name']}")
+            for st in plan:
+                who = f"{st['agent']} ({st['model']})" if st["agent"] else "NO AVAILABLE AGENT"
+                tried = "; ".join(f"{x['agent']}: {x['why']}" for x in st["tried"])
+                print(f"  stage {st['stage']}: {'RUN' if st['needed'] else 'skip'} — {st['why']} — {who}"
+                      + (f" — {st['dispatch']['command']}" if st["needed"] and st.get("dispatch") else "")
+                      + (f" [skipped: {tried}]" if tried else ""))
+        return 3 if any(st["needed"] and not st["agent"] for st in plan) else 0
     elif a.wf == "amend":
         w = workflow.amend(project, a.workflow, a.reason, field=a.field, before=a.before, after=a.after, actor=actor)
         print(f"{w.id}: {w.state} — amended {a.field}")
@@ -419,6 +447,8 @@ def main(argv=None) -> int:
     x = common(wsub.add_parser("pack"))
     x.add_argument("workflow"); x.add_argument("--task"); x.add_argument("--json", action="store_true")
     x.add_argument("--tokens", type=int, default=pack.DEFAULT_TOKENS, help="budget of the pack")
+    x = common(wsub.add_parser("reviewers"))
+    x.add_argument("workflow"); x.add_argument("--task"); x.add_argument("--json", action="store_true")
     x = common(wsub.add_parser("amend"))
     x.add_argument("workflow"); x.add_argument("--field", required=True); x.add_argument("--reason", required=True)
     x.add_argument("--before"); x.add_argument("--after")
@@ -450,6 +480,12 @@ def main(argv=None) -> int:
     x = lsub.add_parser("list")
     x.add_argument("--project", default=os.getcwd()); x.add_argument("--path", action="append")
     x.add_argument("--text", default=""); x.add_argument("--json", action="store_true")
+    x = sub.add_parser("pick", help="best available agent of a role's pool")
+    x.add_argument("role"); x.add_argument("--complexity", choices=("S", "M", "L"))
+    x.add_argument("--wf"); x.add_argument("--project", default=os.getcwd()); x.add_argument("--json", action="store_true")
+    x = sub.add_parser("profile", help="the project's team profile")
+    x.add_argument("action", choices=("list", "show", "set")); x.add_argument("name", nargs="?")
+    x.add_argument("--project", default=os.getcwd())
     r = sub.add_parser("route")
     r.add_argument("role"); r.add_argument("--capability"); r.add_argument("--model"); r.add_argument("--json", action="store_true")
     pc = sub.add_parser("policy")
@@ -492,6 +528,35 @@ def _dispatch(ap, a) -> int:
         return _wf(a)
     if a.cmd == "bench":
         return _bench(a)
+    if a.cmd == "pick":
+        try:
+            r = router.choose(a.role, a.complexity)
+        except router.PolicyError as e:
+            print(f"hydra-pod-dsh: {e}", file=sys.stderr)
+            return 3
+        if a.wf:
+            workflow.record(os.path.abspath(a.project), a.wf, "hydra/route-decision", ignorable=True,
+                            payload={"role": a.role, "complexity": a.complexity, "agent": r["agent"],
+                                     "model": r["model"], "billing": r["billing"], "considered": r["considered"]})
+        print(json.dumps({"schema_version": SCHEMA_VERSION, **r}) if a.json else
+              f"{a.role} -> {r['agent']}: {r['runtime']} / {r['model']} [{r['billing']}]"
+              + "".join(f"\n  passed over {c['agent']}: {c['why']}" for c in r["considered"] if not c["ok"]))
+        return 0
+    if a.cmd == "profile":
+        project = os.path.abspath(a.project)
+        if a.action == "list":
+            act = profiles.active(project)["name"]
+            for name, p in profiles.available().items():
+                print(f"{'*' if name == act else ' '} {name:<12} {p['description']}")
+        elif a.action == "show":
+            p = profiles.active(project)
+            print(f"{p['name']}: {p['description']}")
+        else:
+            if not a.name:
+                raise ValueError("profile set needs a NAME")
+            p = profiles.set_active(project, a.name)
+            print(f"profile: {p['name']} ({profiles.active_file(project)})")
+        return 0
     if a.cmd == "map":
         if a.tokens < 100:
             raise ValueError("--tokens must be at least 100")

@@ -31,7 +31,8 @@ Read these with your file-read tool when the step comes up, not before:
 
 ## Workflow ledger (essentials; full rules in `references/ledger.md`)
 
-- Before the first dispatch: `hydra-pod-dsh policy`, `hydra-pod-dsh route executor`, `hydra-pod-dsh route reviewer`. Exit 3 = no compliant agent: stop and tell the user.
+- Before the first dispatch: `hydra-pod-dsh policy`, then `hydra-pod-dsh pick executor --complexity <S|M|L> --wf WF-<T>` (the best available builder of the pool, skipping any whose subscription window is exhausted; it records the choice). Exit 3 = no compliant or available agent: stop and tell the user.
+- Before each review: `hydra-pod-dsh wf reviewers WF-<T>` lists the review stages this ticket needs (a later stage runs on high risk, or when you overruled the reviewer on a serious point, per the active profile) with the command for each. Run every stage marked RUN; exit 3 = a needed stage has no available agent: tell the user.
 - `hydra-pod-dsh wf start <T> --objective '<one line>' --by '<your model> (DeepSeek Harness)'`, then `wf advance WF-<T> <STATE>` at each step: `PLANNING` → `PLAN_READY` → `ASSIGNING` → `EXECUTING` → `TESTING` → `REVIEWING` → `VERIFYING`.
 - Decide with `wf decide WF-<T> APPROVE|REWORK|RE_REVIEW|REPLAN|ESCALATE|ABORT --reason '<why>'`. No finding may stay unverified when you decide. A limit or budget block (exit 3, `BLOCKED`) means stop and ask the user; never work around it.
 - After each build and review: `wf resources WF-<T>`, and one line to the user with the stage's model, work tokens and window share (`wf stages WF-<T>`).
