@@ -33,6 +33,9 @@
   hydra-pod-dsh pick <role> [--complexity S|M|L] [--wf WF] [--project DIR] [--json]
                                               best available agent of the role's pool (quota-aware); --wf records it
   hydra-pod-dsh profile list|show|set [NAME] [--project DIR]   team profile (economy, balanced, max-quality)
+  hydra-pod-dsh plan approve <NAME> --ticket T1 --ticket T2:T1 ... --reason TEXT [--project DIR]
+                                              approve a multi-ticket plan (T2:T1 = T2 depends on T1)
+  hydra-pod-dsh plan show <NAME> [--json] | plan list   waves, states, and what may start now
   hydra-pod-dsh route <role> [--capability C] [--model M] [--json]
   hydra-pod-dsh policy [--json]               registry violations (billing, read-only, role separation)
   exit status: 0 ok, 1 environment error (clean message), 2 refused move or bad input,
@@ -50,7 +53,7 @@ import os
 import sys
 import time
 
-from . import (adapters, bench, brief, budget, consistency, diffsum, findings, lessons, pack, profiles, repomap, health, ledger, live, manager_usage, report, resources, router, stages,
+from . import (adapters, bench, brief, budget, consistency, diffsum, findings, lessons, pack, plan, profiles, repomap, health, ledger, live, manager_usage, report, resources, router, stages,
                tokens, usage, workflow)
 
 SCHEMA_VERSION = 1  # of the JSON printed by `status --json` and `wf ... --json` (§13.3)
@@ -199,6 +202,13 @@ def _wf(a) -> int:
                                   ("max_manager_tokens", a.budget_manager_tokens)) if v is not None}
         w = workflow.create(project, a.ticket, a.objective, policy, actor, bud)
     elif a.wf == "advance":
+        if a.state == "EXECUTING":
+            first = workflow.get(project, a.workflow).tasks[0]
+            waiting = plan.blocked_by(project, first)
+            if waiting:
+                raise workflow.TransitionError(
+                    f"{a.workflow}: EXECUTING refused: the approved plan makes {first} wait for "
+                    f"{', '.join(waiting)} (not DONE yet)")
         if a.state in workflow.DISPATCH_STATES and workflow.get(project, a.workflow).budget:
             resources.sync(project, a.workflow)
             b = budget.check(project, a.workflow)
@@ -276,23 +286,23 @@ def _wf(a) -> int:
         task = a.task or w.task_id
         risk = (diffsum.ticket_header(project, task).get("risk") or "").lower() or None
         prof = profiles.active(project)
-        plan = router.review_plan(risk, findings.summary(project, w.tasks), second_review=prof["second_review"])
+        cascade = router.review_plan(risk, findings.summary(project, w.tasks), second_review=prof["second_review"])
         reg = router.load()
-        for st in plan:
+        for st in cascade:
             if st["agent"]:
                 st["dispatch"] = adapters.for_runtime(st["runtime"]).dispatch(reg["agents"][st["agent"]], "reviewer", task)
         if a.json:
             print(json.dumps({"schema_version": SCHEMA_VERSION, "task": task, "risk": risk, "profile": prof["name"],
-                              "stages": plan}))
+                              "stages": cascade}))
         else:
             print(f"{task}: risk {risk or '-'}, profile {prof['name']}")
-            for st in plan:
+            for st in cascade:
                 who = f"{st['agent']} ({st['model']})" if st["agent"] else "NO AVAILABLE AGENT"
                 tried = "; ".join(f"{x['agent']}: {x['why']}" for x in st["tried"])
                 print(f"  stage {st['stage']}: {'RUN' if st['needed'] else 'skip'} — {st['why']} — {who}"
                       + (f" — {st['dispatch']['command']}" if st["needed"] and st.get("dispatch") else "")
                       + (f" [skipped: {tried}]" if tried else ""))
-        return 3 if any(st["needed"] and not st["agent"] for st in plan) else 0
+        return 3 if any(st["needed"] and not st["agent"] for st in cascade) else 0
     elif a.wf == "amend":
         w = workflow.amend(project, a.workflow, a.reason, field=a.field, before=a.before, after=a.after, actor=actor)
         print(f"{w.id}: {w.state} — amended {a.field}")
@@ -486,6 +496,11 @@ def main(argv=None) -> int:
     x = sub.add_parser("profile", help="the project's team profile")
     x.add_argument("action", choices=("list", "show", "set")); x.add_argument("name", nargs="?")
     x.add_argument("--project", default=os.getcwd())
+    x = sub.add_parser("plan", help="approved multi-ticket plans and their dependency waves")
+    x.add_argument("action", choices=("approve", "show", "list")); x.add_argument("name", nargs="?")
+    x.add_argument("--ticket", action="append", default=[], help="T or T:DEP1,DEP2 (repeatable)")
+    x.add_argument("--reason"); x.add_argument("--by"); x.add_argument("--project", default=os.getcwd())
+    x.add_argument("--json", action="store_true")
     r = sub.add_parser("route")
     r.add_argument("role"); r.add_argument("--capability"); r.add_argument("--model"); r.add_argument("--json", action="store_true")
     pc = sub.add_parser("policy")
@@ -556,6 +571,32 @@ def _dispatch(ap, a) -> int:
                 raise ValueError("profile set needs a NAME")
             p = profiles.set_active(project, a.name)
             print(f"profile: {p['name']} ({profiles.active_file(project)})")
+        return 0
+    if a.cmd == "plan":
+        project = os.path.abspath(a.project)
+        if a.action == "list":
+            for name, p in plan.plans(project).items():
+                print(f"{name}: {len(p['deps'])} ticket(s) in {len(p['waves'])} wave(s) — {p.get('reason') or ''}")
+            return 0
+        if not a.name:
+            raise ValueError(f"plan {a.action} needs a NAME")
+        if a.action == "approve":
+            if not a.ticket:
+                raise ValueError("plan approve needs at least one --ticket")
+            out = plan.approve(project, a.name, a.ticket, a.reason or "",
+                               {"kind": "manager", "name": a.by} if a.by else None)
+        else:
+            out = plan.status(project, a.name)
+        if a.json:
+            print(json.dumps({"schema_version": SCHEMA_VERSION, **out}))
+            return 0
+        print(f"plan {out['name']}: " + " → ".join("[" + ", ".join(w) + "]" for w in out["waves"]))
+        if "states" in out:
+            for t, st in out["states"].items():
+                after = f" (after {', '.join(out['deps'][t])})" if out["deps"][t] else ""
+                print(f"  {t:<20} {st}{after}")
+            print(f"  start now: {', '.join(out['start_now']) or 'nothing'}"
+                  + ("  — plan complete" if out["done"] else ""))
         return 0
     if a.cmd == "map":
         if a.tokens < 100:

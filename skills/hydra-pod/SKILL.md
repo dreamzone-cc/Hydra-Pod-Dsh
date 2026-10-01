@@ -31,6 +31,7 @@ Read these with your file-read tool when the step comes up, not before:
 
 ## Workflow ledger (essentials; full rules in `references/ledger.md`)
 
+- **A task of several tickets is a plan.** Write all its tickets first, then approve the plan once, before any build: `hydra-pod-dsh plan approve <name> --ticket T1 --ticket T2:T1 --reason '<why this split>'` (`T2:T1` = T2 depends on T1). `hydra-pod-dsh plan show <name>` lists the waves and what may start now. `wf advance … EXECUTING` is refused for a ticket whose dependencies are not DONE. Builds still run one at a time (Hydra-Pod's preflight needs a clean tree). To change the split, approve the plan again under the same name.
 - Before the first dispatch: `hydra-pod-dsh policy`, then `hydra-pod-dsh pick executor --complexity <S|M|L> --wf WF-<T>` (the best available builder of the pool, skipping any whose subscription window is exhausted; it records the choice). Exit 3 = no compliant or available agent: stop and tell the user.
 - Before each review: `hydra-pod-dsh wf reviewers WF-<T>` lists the review stages this ticket needs (a later stage runs on high risk, or when you overruled the reviewer on a serious point, per the active profile) with the command for each. Run every stage marked RUN; exit 3 = a needed stage has no available agent: tell the user.
 - `hydra-pod-dsh wf start <T> --objective '<one line>' --by '<your model> (DeepSeek Harness)'`, then `wf advance WF-<T> <STATE>` at each step: `PLANNING` → `PLAN_READY` → `ASSIGNING` → `EXECUTING` → `TESTING` → `REVIEWING` → `VERIFYING`.
