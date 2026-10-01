@@ -160,6 +160,20 @@ class ConsultTest(Phase5):
         self.assertIn("cannot serve as advisor", r.stderr)
 
 
+class SandboxDenialTest(Phase5):
+    def test_opencode_read_only_home_is_reported_as_a_sandbox_denial(self):
+        (self.p / ".opencode/agent").mkdir(parents=True)
+        (self.p / ".opencode/agent/reviewer.md").write_text("read-only reviewer\n")
+        bindir = Path(self.env["PATH"].split(":")[0])
+        (bindir / "opencode").write_text("#!/bin/sh\necho \"Error: EROFS: read-only file system, open '$HOME/.local/share/opencode/log/opencode.log'\" >&2\nexit 1\n")
+        q = self.p / "q.md"
+        q.write_text("Should parsing move into one shared helper, or stay per function?")
+        r = self.cli("wf", "consult", "WF-T1", "ask", "--question-file", str(q), "--advisor", "advisor-openrouter")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("read-only file system", r.stderr)
+        self.assertIn("sandbox_permissions: danger-full-access", r.stderr)
+
+
 class PolicyTest(unittest.TestCase):
     def test_new_roles_and_pools(self):
         reg = router.load()

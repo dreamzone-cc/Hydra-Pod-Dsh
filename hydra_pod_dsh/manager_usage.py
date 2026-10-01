@@ -56,6 +56,24 @@ def session_files(home: Path | None = None) -> list[Path]:
     return sorted(root.glob("*/*/session.v*.jsonl*")) if root.exists() else []
 
 
+def latest_session_cwd(home: Path | None = None) -> str | None:
+    """Workspace of the most recently written DSH session (its header's cwd), reading only its first frame."""
+    files = session_files(home)
+    if not files:
+        return None
+    try:
+        newest = max(files, key=lambda f: f.stat().st_mtime)
+        with open(newest, "rb") as fh:
+            head = fh.read(1 << 16)
+        if newest.suffix == ".zstd":
+            if zstd is None:
+                return None
+            head = zstd.ZstdDecompressor().decompress(head, max_length=1 << 16)
+        return json.loads(head.split(b"\n", 1)[0]).get("cwd") or None
+    except (OSError, ValueError, EOFError) + ((zstd.ZstdError,) if zstd else ()):
+        return None
+
+
 def scan(path: Path, project: str) -> dict | None:
     """Usage records of one session if it is a Hydra-Pod session for `project`.
 

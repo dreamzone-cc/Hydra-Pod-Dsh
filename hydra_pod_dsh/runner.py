@@ -118,6 +118,12 @@ def _opencode(project, prompt: str, model: str, raw: Path) -> dict:
     except FileNotFoundError:
         raise RunError("opencode is not on PATH")
     raw.write_text(r.stdout)
+    denied = next((ln.strip() for ln in (r.stderr or "").splitlines() if "read-only file system" in ln.lower()), None)
+    if r.returncode != 0 and denied:
+        # opencode writes its log and state under ~/.local: read-only in DSH's workspace-write sandbox.
+        # Keep the system's wording, which DSH recognises as a sandbox denial.
+        raise RunError(f"opencode could not write its state ({denied}); inside DeepSeek Harness, rerun this "
+                       "command once with sandbox_permissions: danger-full-access")
     text, tools, cost = None, 0, 0.0
     tok = {"input": 0, "output": 0, "reasoning": 0, "cache_read": 0}
     for line in r.stdout.splitlines():

@@ -27,6 +27,10 @@ ZAI_CACHE_TTL = 60
 
 
 def cache_dir() -> Path:
+    """Where caches and the live stage go. Inside DeepSeek Harness's workspace-write sandbox
+    this directory is read-only (bwrap binds / read-only and only the workspace writable), so
+    every writer treats it as optional: a cache it cannot write is skipped, and the live stage
+    falls back to the project (live.py)."""
     return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "hydra-pod-dsh"
 
 
@@ -132,10 +136,13 @@ def zai_usage(now: float | None = None, fetch=None) -> dict:
             out["error"] = f"Z.ai quota unavailable ({e.__class__.__name__})"
             return out
         if q is not None:
-            cache.parent.mkdir(parents=True, exist_ok=True)
-            tmp = cache.with_suffix(f".{os.getpid()}.tmp")
-            tmp.write_text(json.dumps({"at": now, "quota": q}))
-            tmp.replace(cache)  # a concurrent reader never sees a half-written cache
+            try:
+                cache.parent.mkdir(parents=True, exist_ok=True)
+                tmp = cache.with_suffix(f".{os.getpid()}.tmp")
+                tmp.write_text(json.dumps({"at": now, "quota": q}))
+                tmp.replace(cache)  # a concurrent reader never sees a half-written cache
+            except OSError:
+                pass  # read-only home (DSH sandbox): the next call fetches again
     if q is None:
         out["error"] = "Z.ai quota unavailable (no key file or no network)"
         return out

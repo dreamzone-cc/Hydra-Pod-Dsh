@@ -6,3 +6,4 @@ node_modules/
 *.egg-info/
 .pytest_cache/
 .zcode/
+.test-tmp/

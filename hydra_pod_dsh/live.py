@@ -25,29 +25,71 @@ def stage_file() -> Path:
     return cache_dir() / "stage.json"
 
 
-def set_stage(ticket: str | None, stage: str, project: str, by: str = MANAGER, now: float | None = None) -> dict:
-    entry = {"ticket": ticket, "stage": stage, "project": project, "by": by,
-             "at": time.time() if now is None else now}
-    f = stage_file()
+def project_stage_file(project) -> Path:
+    """The fallback inside the project: the only place DSH's workspace-write sandbox lets a
+    command write. `status` (run by the plugin, outside the sandbox) finds it through the
+    workspace of the most recent DSH session."""
+    return Path(project) / ".hydra" / "live-stage.json"
+
+
+def _write(f: Path, entry: dict) -> None:
     f.parent.mkdir(parents=True, exist_ok=True)
     tmp = f.with_suffix(f".{os.getpid()}.tmp")  # unique: two stage writers cannot clobber each other
     tmp.write_text(json.dumps(entry))
     tmp.replace(f)
+
+
+def set_stage(ticket: str | None, stage: str, project: str, by: str = MANAGER, now: float | None = None) -> dict:
+    entry = {"ticket": ticket, "stage": stage, "project": project, "by": by,
+             "at": time.time() if now is None else now}
+    try:
+        _write(stage_file(), entry)
+    except OSError:
+        _write(project_stage_file(project), entry)   # read-only home: inside DSH's sandbox
+        _ignore(project)
     return entry
 
 
-def clear_stage() -> None:
+def _ignore(project) -> None:
+    """Keep the runtime stage out of commits (.hydra/ itself holds committed skills and memory)."""
+    gi = Path(project) / ".hydra" / ".gitignore"
+    lines = gi.read_text().splitlines() if gi.exists() else []
+    if "live-stage.json" not in lines:
+        gi.write_text("\n".join(lines + ["live-stage.json"]) + "\n")
+
+
+def clear_stage(project=None) -> None:
+    if project:
+        try:
+            project_stage_file(project).unlink()
+        except FileNotFoundError:
+            pass
     try:
         stage_file().unlink()
     except FileNotFoundError:
         pass
+    except OSError:
+        # read-only cache inside the sandbox: an idle marker in the project supersedes it
+        if project:
+            _write(project_stage_file(project), {"stage": None, "project": str(project), "at": time.time()})
+            _ignore(project)
 
 
-def read_stage(now: float | None = None) -> dict | None:
+def read_stage(now: float | None = None, projects=None) -> dict | None:
+    """The newest live stage among the cache and the projects' fallbacks (an idle marker wins if newer)."""
     now = time.time() if now is None else now
-    try:
-        entry = json.loads(stage_file().read_text())
-    except (OSError, ValueError):
+    if projects is None:
+        from .manager_usage import latest_session_cwd
+        cwd = latest_session_cwd()
+        projects = [cwd] if cwd else []
+    entries = []
+    for f in [stage_file()] + [project_stage_file(p) for p in projects]:
+        try:
+            entries.append(json.loads(f.read_text()))
+        except (OSError, ValueError):
+            continue
+    entry = max(entries, key=lambda e: e.get("at", 0), default=None)
+    if entry is None or entry.get("stage") is None:
         return None
     return entry if now - entry.get("at", 0) < STAGE_TTL else None
 
