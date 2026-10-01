@@ -65,7 +65,8 @@ EVENT_TYPES = frozenset({"hydra/workflow-created", "hydra/workflow-state", "hydr
                          "hydra/human-decision", "hydra/resource-usage", "hydra/checkpoint-created",
                          "hydra/policy-decision", "hydra/task-amended",
                          # informational, written ignorable so older readers skip them (phase 2)
-                         "hydra/context-pack", "hydra/route-decision", "hydra/consult"})
+                         "hydra/context-pack", "hydra/route-decision", "hydra/consult",
+                         "hydra/context-allocation", "hydra/blackboard-ask"})
 STATE_EVENTS = frozenset({"hydra/workflow-state", "hydra/verification-decision", "hydra/human-decision",
                           "hydra/policy-decision"})
 BUDGET_KEYS = ("max_cost_usd", "max_zai_credits", "max_runtime_minutes", "max_manager_tokens")

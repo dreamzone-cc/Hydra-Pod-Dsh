@@ -128,7 +128,7 @@ class SkillReferencesTest(unittest.TestCase):
         import re
         skill = ROOT / "skills/hydra-pod"
         refs = set(re.findall(r"`(references/[\w.-]+\.md)`", (skill / "SKILL.md").read_text()))
-        self.assertEqual(refs, {"references/first-use.md", "references/ledger.md", "references/memory.md"})
+        self.assertEqual(refs, {"references/first-use.md", "references/ledger.md", "references/memory.md", "references/shards.md"})
         self.assertEqual([r for r in sorted(refs) if not (skill / r).is_file()], [])
 
 

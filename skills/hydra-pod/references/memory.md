@@ -13,3 +13,7 @@ At the start of a session read `.hydra/steward/core.md` if it exists (run `hydra
 ## Project skills
 
 When the same steps recur across tickets, write them once as a project skill (`hydra-pod-dsh skill add <name> --description '…' --file <body.md> --paths '<globs>' --keywords '<words>'`), review it, and `skill approve` it. Context packs attach trial and active skills automatically; your APPROVE and REWORK decisions score them, which promotes or demotes them (`skill list`). A skill in review needs `skill revise` and your approval again.
+
+## Drafts from the skill smith
+
+Every few closed tickets, run `hydra-pod-dsh skill mine`. It lists what keeps repeating in the project's records (lessons that share files or tags, alike REWORK reasons, alike valid findings, suggestions adopted twice), with the evidence. It spends nothing. For a proposal worth a skill, `hydra-pod-dsh skill draft <P-id>` has a cheap read-only model write the skill from that evidence. The draft enters the library only as a candidate: read it (`skill show`), correct it with `skill revise` if needed, and approve it yourself.

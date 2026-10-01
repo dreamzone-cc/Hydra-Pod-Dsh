@@ -26,7 +26,7 @@ import hashlib
 import time
 from pathlib import Path
 
-from . import diffsum, lessons, repomap, skills, steward, workflow
+from . import blackboard, diffsum, lessons, repomap, shards, skills, steward, workflow
 
 DEFAULT_TOKENS = 6000
 WHOLE_FILE_LINES = 250       # a file to change is included whole up to this size
@@ -119,6 +119,22 @@ def build(project, task: str, max_tokens: int = DEFAULT_TOKENS) -> dict:
     if found:
         take("Lessons from earlier tickets",
              "\n".join(f"- {x['text']} ({x['workflow_id']}, {x['date']})" for x in found) + "\n")
+    wid = workflow.workflow_id_for(task)
+    alloc = shards.latest_allocations(project).get(wid, {}) if (Path(project) / "_receipts").exists() else {}
+    shard_ids = alloc.get("touch", []) + alloc.get("reads", []) + list(alloc.get("keepers", {}))
+    size = alloc.get("max_shard_tokens", shards.MAX_SHARD_TOKENS)
+    if not shard_ids:
+        shard_ids = [s["id"] for s in shards.shards_for(shards.partition(project, size), allowed + hints)]
+    known = blackboard.facts(project, shard_ids, max_shard_tokens=size)[-15:]
+    if known:
+        take("Established facts (shared blackboard; each still matches its files)",
+             "\n".join(f"- {f['answer']} ({_refs(f)})" for f in known) + "\n")
+    if alloc.get("keepers"):
+        take("Ask instead of reading",
+             "These parts of the project are held by other models. Do not read their files; ask, at most "
+             f"{blackboard.MAX_QUESTIONS} questions for this ticket, one fact each:\n\n"
+             + "".join(f"- {sid}: `hydra-pod-dsh ask \"<question>\" --wf {wid} --shard {sid}`\n"
+                       for sid in alloc["keepers"]))
     map_tokens = max(300, min(1500, (budget - used) // repomap.CHARS_PER_TOKEN - 400))
     rmap = repomap.build(project, focus, map_tokens)
     take("Repository map (definitions ranked by relevance to this ticket: line, signature)",
@@ -153,6 +169,10 @@ def write(project, wid: str, task: str | None = None, max_tokens: int = DEFAULT_
                                                "git_head")}
                     | {"at_iso": time.strftime("%Y-%m-%dT%H:%M:%S%z")})
     return p
+
+
+def _refs(fact: dict) -> str:
+    return ", ".join(f"{r['path']}:{r['line']}" for r in fact["refs"]) or fact["shard"]
 
 
 def render_pointer(p: dict) -> str:

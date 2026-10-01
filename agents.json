@@ -195,6 +195,38 @@
           ]
         }
       ]
+    },
+    "keeper": {
+      "strategy": "score",
+      "accepts": {
+        "roles": [
+          "reviewer",
+          "advisor"
+        ]
+      },
+      "members": [
+        {
+          "agent": "reviewer"
+        },
+        {
+          "agent": "advisor-claude"
+        }
+      ],
+      "_note": "read-only models that hold a shard and answer questions about it (hydra-pod-dsh ask). advisor-openrouter is left out: it is approved only for explicit consults"
+    },
+    "skillsmith": {
+      "strategy": "score",
+      "accepts": {
+        "roles": [
+          "advisor"
+        ]
+      },
+      "members": [
+        {
+          "agent": "advisor-claude"
+        }
+      ],
+      "_note": "drafts project skills from recurring patterns; drafts are candidates the manager must approve"
     }
   },
   "runtimes": {

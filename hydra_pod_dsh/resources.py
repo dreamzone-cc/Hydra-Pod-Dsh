@@ -12,7 +12,7 @@ from pathlib import Path
 
 from . import tokens, workflow
 
-ROLE = {"build": "executor", "review": "reviewer", "consult": "advisor"}
+ROLE = {"build": "executor", "review": "reviewer", "consult": "advisor", "ask": "keeper", "draft": "skillsmith"}
 BILLING = {"opencode-go": "subscription/opencode-go",
            "opencode/zai-coding-plan": "subscription/zai-lite",
            "zcode-lite": "subscription/zai-lite",

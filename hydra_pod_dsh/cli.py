@@ -44,6 +44,11 @@
   hydra-pod-dsh skill add <NAME> --description D --file BODY.md [--paths G,..] [--keywords K,..] [--reason R]
   hydra-pod-dsh skill revise|approve|retire <NAME> [--file BODY.md] --reason R | skill list|show [NAME]
   hydra-pod-dsh steward init | steward set <SECTION> --text T --reason R | steward show   [--project DIR]
+  hydra-pod-dsh shards list [--json] | shards allocate <WF> [--task T] [--json]
+                                              context shards, and which model holds which for a ticket
+  hydra-pod-dsh ask "QUESTION" --wf WF [--shard S] [--agent A]   ask the shard's keeper (cached on the blackboard)
+  hydra-pod-dsh bb list [--shard S] [--all] [--json] | bb add --wf WF --shard S --question Q --answer A [--refs P:L,..]
+  hydra-pod-dsh skill mine [--json] | skill draft <P-id> [--agent A] [--wf WF]   recurring patterns -> skill drafts
   hydra-pod-dsh route <role> [--capability C] [--model M] [--json]
   hydra-pod-dsh policy [--json]               registry violations (billing, read-only, role separation)
   exit status: 0 ok, 1 environment error (clean message), 2 refused move or bad input,
@@ -63,7 +68,7 @@ import time
 from pathlib import Path
 
 from . import (adapters, bench, brief, budget, consistency, diffsum, findings, lessons, pack, plan, profiles, repomap,
-               runner, skills, steward, health, ledger, live, manager_usage, report, resources, router, stages,
+               blackboard, runner, shards, skills, skillsmith, steward, health, ledger, live, manager_usage, report, resources, router, stages,
                tokens, usage, workflow)
 
 SCHEMA_VERSION = 1  # of the JSON printed by `status --json` and `wf ... --json` (§13.3)
@@ -649,7 +654,8 @@ def main(argv=None) -> int:
     x.add_argument("--reason"); x.add_argument("--by"); x.add_argument("--project", default=os.getcwd())
     x.add_argument("--json", action="store_true")
     x = sub.add_parser("skill", help="the project's skills library (.hydra/skills)")
-    x.add_argument("action", choices=("add", "revise", "approve", "retire", "list", "show"))
+    x.add_argument("action", choices=("add", "revise", "approve", "retire", "list", "show", "mine", "draft"))
+    x.add_argument("--agent"); x.add_argument("--wf")
     x.add_argument("name", nargs="?"); x.add_argument("--description"); x.add_argument("--file")
     x.add_argument("--paths"); x.add_argument("--keywords"); x.add_argument("--reason", default="")
     x.add_argument("--project", default=os.getcwd()); x.add_argument("--json", action="store_true")
@@ -660,6 +666,17 @@ def main(argv=None) -> int:
     x.add_argument("what", choices=("review",)); x.add_argument("ticket"); x.add_argument("--agent", required=True)
     x.add_argument("--wf"); x.add_argument("--max-budget-usd", type=float)
     x.add_argument("--project", default=os.getcwd())
+    x = sub.add_parser("shards", help="context shards and their allocation to models")
+    x.add_argument("action", choices=("list", "allocate")); x.add_argument("workflow", nargs="?")
+    x.add_argument("--task"); x.add_argument("--project", default=os.getcwd()); x.add_argument("--json", action="store_true")
+    x = sub.add_parser("ask", help="ask a shard's keeper; answers are kept on the blackboard")
+    x.add_argument("question"); x.add_argument("--wf", required=True); x.add_argument("--shard")
+    x.add_argument("--agent"); x.add_argument("--max", type=int, default=blackboard.MAX_QUESTIONS)
+    x.add_argument("--project", default=os.getcwd()); x.add_argument("--json", action="store_true")
+    x = sub.add_parser("bb", help="the shared blackboard of facts")
+    x.add_argument("action", choices=("list", "add")); x.add_argument("--shard"); x.add_argument("--all", action="store_true")
+    x.add_argument("--wf"); x.add_argument("--question"); x.add_argument("--answer"); x.add_argument("--refs", default="")
+    x.add_argument("--project", default=os.getcwd()); x.add_argument("--json", action="store_true")
     r = sub.add_parser("route")
     r.add_argument("role"); r.add_argument("--capability"); r.add_argument("--model"); r.add_argument("--json", action="store_true")
     pc = sub.add_parser("policy")
@@ -756,6 +773,98 @@ def _dispatch(ap, a) -> int:
                 print(f"  {t:<20} {st}{after}")
             print(f"  start now: {', '.join(out['start_now']) or 'nothing'}"
                   + ("  — plan complete" if out["done"] else ""))
+        return 0
+    if a.cmd == "shards":
+        project = os.path.abspath(a.project)
+        if a.action == "list":
+            out = shards.partition(project)
+            if a.json:
+                print(json.dumps({"schema_version": SCHEMA_VERSION, "shards": out}))
+            else:
+                for s in out:
+                    print(f"{s['id']:<28} {s['tokens']:>8} tokens  {len(s['files']):>4} file(s)  ({s['key']})")
+                print(f"total {sum(s['tokens'] for s in out)} tokens in {len(out)} shard(s)")
+            return 0
+        if not a.workflow:
+            raise ValueError("shards allocate needs a workflow")
+        if a.task:
+            workflow.validate_ticket_id(a.task)
+        try:
+            out = shards.allocate(project, a.workflow, a.task)
+        except router.PolicyError as e:
+            print(f"hydra-pod-dsh: {e}", file=sys.stderr)
+            return 3
+        if a.json:
+            print(json.dumps({"schema_version": SCHEMA_VERSION, **out}))
+        else:
+            print(f"{out['task']}: {out['status']} — executor {out['executor']} (window {out['executor_window']}) "
+                  f"changes {', '.join(out['touch']) or 'nothing known'}")
+            if out["reads"]:
+                print(f"  reads itself: {', '.join(out['reads'])}")
+            for sid, k in out["keepers"].items():
+                print(f"  {sid} ({out['shard_tokens'][sid]} tokens) kept by {k}: ask, do not read")
+            print(f"  capacity {out['capacity_tokens']} tokens across the pod")
+            for n in out["notes"]:
+                print(f"  ! {n}")
+            if out["assumed_windows"]:
+                print(f"  windows assumed ({shards.ASSUMED_WINDOW} tokens) for: {', '.join(out['assumed_windows'])}: "
+                      "set context_window in agents.json")
+        return 3 if out["status"] in ("locked", "split-needed") else 0
+    if a.cmd == "ask":
+        project = os.path.abspath(a.project)
+        if a.max < 1:
+            raise ValueError("--max must be at least 1")
+        if _budget_gate(project, a.wf):
+            return 3
+        try:
+            out = blackboard.ask(project, a.wf, a.question, a.shard, a.agent, a.max)
+        except runner.RunError as e:
+            print(f"hydra-pod-dsh: {e}", file=sys.stderr)
+            return 1
+        if a.json:
+            print(json.dumps({"schema_version": SCHEMA_VERSION, **out}))
+        else:
+            src = "cached, no model call" if out.get("cached") else f"from {out.get('by') or out.get('agent')}"
+            refs = ", ".join(f"{r['path']}:{r['line']}" for r in out.get("refs") or [])
+            print(f"{out.get('id', '-')} [{out['shard']}] ({src}): {out['answer']}" + (f"\n  refs: {refs}" if refs else ""))
+        return 0
+    if a.cmd == "bb":
+        project = os.path.abspath(a.project)
+        if a.action == "add":
+            if not (a.wf and a.shard and a.question and a.answer):
+                raise ValueError("bb add needs --wf, --shard, --question and --answer")
+            f = blackboard.add(project, a.wf, a.shard, a.question, a.answer, a.refs)
+            print(f"{f['id']} added to {a.shard}")
+            return 0
+        out = blackboard.facts(project, [a.shard] if a.shard else None, only_valid=not a.all)
+        if a.json:
+            print(json.dumps({"schema_version": SCHEMA_VERSION, "facts": out}))
+        else:
+            for f in out:
+                print(f"{f['id']:<6} {'ok   ' if f['valid'] else 'STALE'} [{f['shard']}] {f['question'][:60]} -> {f['answer'][:80]}")
+            print(f"{len(out)} fact(s)" if out else "no facts")
+        return 0
+    if a.cmd == "skill" and a.action in ("mine", "draft"):
+        project = os.path.abspath(a.project)
+        if a.action == "mine":
+            props = skillsmith.mine(project)
+            if a.json:
+                print(json.dumps({"schema_version": SCHEMA_VERSION, "proposals": props}))
+            else:
+                for p in props:
+                    print(f"{p['id']} {p['kind']:<11} {len(p['evidence'])} case(s)  {p['topic']}")
+                    for e in p["evidence"][:4]:
+                        print(f"    ({e.get('wf', '-')}) {e['text'][:100]}")
+                print(f"{len(props)} proposal(s)" + (": draft one with `skill draft <id>`" if props else ""))
+            return 0
+        if not a.name:
+            raise ValueError("skill draft needs a proposal id (skill mine)")
+        try:
+            s = skillsmith.draft(project, a.name, a.agent, a.wf)
+        except runner.RunError as e:
+            print(f"hydra-pod-dsh: {e}", file=sys.stderr)
+            return 1
+        print(f"drafted a candidate skill (v{s['version']}): review it with `skill show`, then `skill approve`")
         return 0
     if a.cmd == "skill":
         project = os.path.abspath(a.project)
