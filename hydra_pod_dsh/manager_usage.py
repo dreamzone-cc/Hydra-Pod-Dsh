@@ -149,6 +149,7 @@ def usage_for(project: str, since: float, until: float | None = None, home: Path
         t = row["tokens"]
         row.update({f: t[f] for f in tokens.FIELDS})  # flat copies for older readers
         row["work_tokens"] = tokens.work(t)
+        row["cache_hit_ratio"] = tokens.cache_hit_ratio(t)
         row["cost_usd"] = cost(prices, row["provider"], row["model"], t)
     return {"sessions": got["sessions"], "by_model": list(rows.values())}
 

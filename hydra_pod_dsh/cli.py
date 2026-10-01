@@ -15,9 +15,15 @@
   hydra-pod-dsh wf budget|health|findings|manager <WF> [--json]
   hydra-pod-dsh wf recover <WF> --reason TEXT [--force]   retry a stalled worker step
   hydra-pod-dsh wf stages <WF> [--json]       per stage: model, tokens (work vs cache), subscription share and resets
+  hydra-pod-dsh wf brief <WF> [--json]        resume brief: state, counters, open findings, recent events, next moves
+  hydra-pod-dsh wf diffsum <WF> [--task T] [--base REV] [--head REV] [--json]
+                                              deterministic diff summary (files, symbols, scope) of a ticket's change
   hydra-pod-dsh wf amend <WF> --field F --reason TEXT [--before X --after Y]   manager corrects its ticket
   hydra-pod-dsh wf check [<WF>] [--json]      ledger vs ticket folders (exit 4 on drift)
   hydra-pod-dsh wf report <WF> [--write]      closing report (Markdown); --write saves _receipts/<WF>.report.md
+  hydra-pod-dsh bench report [--project DIR ...] [--save FILE] [--json]
+                                              gate metrics per workflow and their medians (technical paper §7.1)
+  hydra-pod-dsh bench compare <BASELINE.json> <NEW.json> [--json]   change of each gate metric
   hydra-pod-dsh route <role> [--capability C] [--model M] [--json]
   hydra-pod-dsh policy [--json]               registry violations (billing, read-only, role separation)
   exit status: 0 ok, 1 environment error (clean message), 2 refused move or bad input,
@@ -35,7 +41,7 @@ import os
 import sys
 import time
 
-from . import (budget, consistency, findings, health, ledger, live, manager_usage, report, resources, router, stages,
+from . import (bench, brief, budget, consistency, diffsum, findings, health, ledger, live, manager_usage, report, resources, router, stages,
                tokens, usage, workflow)
 
 SCHEMA_VERSION = 1  # of the JSON printed by `status --json` and `wf ... --json` (§13.3)
@@ -223,6 +229,17 @@ def _wf(a) -> int:
         out = stages.build(project, a.workflow)
         print(json.dumps({"schema_version": SCHEMA_VERSION, **out}) if a.json else stages.render(out))
         return 0
+    elif a.wf == "brief":
+        out = brief.build(project, a.workflow)
+        print(json.dumps({"schema_version": SCHEMA_VERSION, **out}) if a.json else brief.render(out))
+        return 0
+    elif a.wf == "diffsum":
+        if a.task:
+            workflow.validate_ticket_id(a.task)  # the id becomes a glob pattern
+        task = a.task or workflow.get(project, a.workflow).task_id
+        out = diffsum.summarize(project, task, a.base, a.head)
+        print(json.dumps({"schema_version": SCHEMA_VERSION, **out}) if a.json else diffsum.render(out))
+        return 0
     elif a.wf == "amend":
         w = workflow.amend(project, a.workflow, a.reason, field=a.field, before=a.before, after=a.after, actor=actor)
         print(f"{w.id}: {w.state} — amended {a.field}")
@@ -324,7 +341,8 @@ def _human(kind: str, out: dict) -> str:
     for r in out["by_model"]:
         cost = "unknown" if r["cost_usd"] is None else f"${r['cost_usd']:.4f}"
         rows.append(f"  {r['provider']}/{r['model']} [{r.get('billing', '?')}] messages={r['messages']} "
-                    f"{tokens.fmt(r['tokens'])} (work {tokens.human(r['work_tokens'])}) cost={cost}")
+                    f"{tokens.fmt(r['tokens'])} (work {tokens.human(r['work_tokens'])}) cost={cost}"
+                    + ("" if r.get("cache_hit_ratio") is None else f" cache_hit={100 * r['cache_hit_ratio']:.0f}%"))
     rows += [f"  POLICY: {v}" for v in out.get("policy_violations", [])]
     return "\n".join(rows)
 
@@ -364,6 +382,12 @@ def main(argv=None) -> int:
     x.add_argument("workflow", nargs="?"); x.add_argument("--json", action="store_true")
     x = common(wsub.add_parser("stages"))
     x.add_argument("workflow"); x.add_argument("--json", action="store_true")
+    x = common(wsub.add_parser("brief"))
+    x.add_argument("workflow"); x.add_argument("--json", action="store_true")
+    x = common(wsub.add_parser("diffsum"))
+    x.add_argument("workflow"); x.add_argument("--task", help="ticket whose header gives base/head/allowed_files")
+    x.add_argument("--base"); x.add_argument("--head", help="default: the ticket's head, else the working tree")
+    x.add_argument("--json", action="store_true")
     x = common(wsub.add_parser("amend"))
     x.add_argument("workflow"); x.add_argument("--field", required=True); x.add_argument("--reason", required=True)
     x.add_argument("--before"); x.add_argument("--after")
@@ -376,6 +400,14 @@ def main(argv=None) -> int:
     for kind in ("budget", "health", "findings", "manager"):
         x = common(wsub.add_parser(kind))
         x.add_argument("workflow"); x.add_argument("--json", action="store_true")
+    bn = sub.add_parser("bench", help="benchmark report over the ledgers of one or more projects")
+    bsub = bn.add_subparsers(dest="bench", required=True)
+    x = bsub.add_parser("report")
+    x.add_argument("--project", action="append", help="repeatable; default: the current directory")
+    x.add_argument("--save", help="also write the JSON report to this file (the baseline of a phase gate)")
+    x.add_argument("--json", action="store_true")
+    x = bsub.add_parser("compare")
+    x.add_argument("baseline"); x.add_argument("new"); x.add_argument("--json", action="store_true")
     r = sub.add_parser("route")
     r.add_argument("role"); r.add_argument("--capability"); r.add_argument("--model"); r.add_argument("--json", action="store_true")
     pc = sub.add_parser("policy")
@@ -396,9 +428,28 @@ def main(argv=None) -> int:
         return 1
 
 
+def _bench(a) -> int:
+    if a.bench == "compare":
+        with open(a.baseline, encoding="utf-8") as f:
+            base = json.load(f)
+        with open(a.new, encoding="utf-8") as f:
+            new = json.load(f)
+        rows = bench.compare(base, new)
+        print(json.dumps({"schema_version": SCHEMA_VERSION, "metrics": rows}) if a.json else bench.render_compare(rows))
+        return 0
+    out = {"schema_version": SCHEMA_VERSION, **bench.report([os.path.abspath(p) for p in a.project or [os.getcwd()]])}
+    if a.save:
+        with open(a.save, "w", encoding="utf-8") as f:
+            json.dump(out, f, indent=1)
+    print(json.dumps(out) if a.json else bench.render(out))
+    return 0
+
+
 def _dispatch(ap, a) -> int:
     if a.cmd == "wf":
         return _wf(a)
+    if a.cmd == "bench":
+        return _bench(a)
     if a.cmd == "route":
         try:
             r = router.route(a.role, a.capability, a.model)

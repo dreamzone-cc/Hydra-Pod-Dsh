@@ -36,6 +36,15 @@ def work(t: dict) -> int:
     return t.get("input", 0) + t.get("output", 0) + t.get("reasoning", 0)
 
 
+def cache_hit_ratio(t: dict) -> float | None:
+    """Share of prompt tokens served from cache: cache_read / (input + cache_read + cache_write).
+
+    Assumes `input` excludes cached tokens, as Anthropic, DeepSeek and opencode
+    report it. None when nothing was sent (no prompt, no ratio)."""
+    prompt = t.get("input", 0) + t.get("cache_read", 0) + t.get("cache_write", 0)
+    return round(t.get("cache_read", 0) / prompt, 4) if prompt else None
+
+
 def human(n: int) -> str:
     return f"{n / 1_000_000:.2f}M" if n >= 1_000_000 else f"{n / 1000:.1f}k" if n >= 1000 else str(n)
 
