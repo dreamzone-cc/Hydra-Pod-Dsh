@@ -20,6 +20,7 @@ policy, and their agents pass the same checks.
 """
 
 import json
+import re
 from pathlib import Path
 
 REGISTRY = Path(__file__).resolve().parent.parent / "agents.json"
@@ -73,15 +74,71 @@ def load(path: Path | None = None) -> dict:
     return reg
 
 
-def classify_provider(provider: str | None) -> str:
-    """Billing route of a DSH provider id as it appears in session logs."""
+def dsh_provider_defs(home: Path | None = None) -> dict[str, dict]:
+    """Provider definitions from the DSH profiles (`cordis.patch.yml`): {name: {displayName, apiKeyEnv, baseURL}}.
+
+    A provider's name says little about how it is billed: in a profile, `anthropic` may be
+    an OAuth bridge to a Claude subscription ("Anthropic (Claude OAuth)", apiKeyEnv
+    ANTHROPIC_OAUTH_TOKEN) rather than an API key. The definition says which. Read with a
+    small line scanner (the package has no YAML dependency); the `web` profile wins a clash."""
+    import os
+    root = Path(home or os.environ.get("DSH_HOME") or Path.home() / ".dsh") / "profiles"
+    files = sorted(root.glob("*/cordis.patch.yml"), key=lambda f: (f.parent.name != "web", f.parent.name))
+    out: dict[str, dict] = {}
+    for f in files:
+        try:
+            lines = f.read_text().splitlines()
+        except OSError:
+            continue
+        owner: dict[int, str] = {}    # indent -> the key opened at that indent
+        found: dict[str, dict] = {}
+        for line in lines:
+            m = re.match(r"^(\s*)([A-Za-z0-9_.-]+):\s*$", line)
+            if m:
+                owner[len(m.group(1))] = m.group(2)
+                for deeper in [i for i in owner if i > len(m.group(1))]:
+                    del owner[deeper]
+                continue
+            fld = re.match(r"^(\s*)(displayName|apiKeyEnv|baseURL):\s*(.+?)\s*$", line)
+            key = fld and owner.get(len(fld.group(1)) - 2)
+            if key:
+                found.setdefault(key, {})[fld.group(2)] = fld.group(3).strip("'\"")
+        for key, fields in found.items():
+            out.setdefault(key, fields)       # files are in priority order: the first definition wins
+    return {k: v for k, v in out.items() if v}
+
+
+_DEFS: dict | None = None
+
+
+def classify_provider(provider: str | None, defs: dict | None = None) -> str:
+    """Billing route of a DSH provider id as it appears in session logs.
+
+    The provider's definition in the DSH profile decides when there is one (an OAuth token
+    variable, or "OAuth" in its display name, is a subscription route); the name is only
+    the fallback."""
+    global _DEFS
     p = (provider or "").lower()
+    if defs is None:
+        if _DEFS is None:
+            _DEFS = {k.lower(): v for k, v in dsh_provider_defs().items()}
+        defs = _DEFS
+    d = defs.get(p)
+    if d:
+        oauth = "oauth" in d.get("apiKeyEnv", "").lower() or "oauth" in d.get("displayName", "").lower()
+        claude = "anthropic.com" in d.get("baseURL", "") or "anthropic" in p or "claude" in d.get("displayName", "").lower()
+        if oauth:
+            if claude:
+                return "oauth/claude-pro"   # a Claude subscription via OAuth: operator-approved for the manager
+            return f"oauth/{p.removeprefix('oauth-').removeprefix('pi-')}"
+        if claude:
+            return "api/anthropic"
     if p in ("pi-anthropic",) or (p.startswith("pi-") and "anthropic" in p):
         return "oauth/claude-pro"        # consumer OAuth bridged into DSH: operator-approved for the manager (2026-09-30)
     if p.startswith("pi-"):
         return f"oauth/{p[3:]}"
     if p == "anthropic":
-        return "api/anthropic"           # unless an OAuth bridge rewrote this provider (check plugins)
+        return "api/anthropic"
     if p in ("deepseek-official", "deepseek"):
         return "api/deepseek"
     return f"api/{p}" if p else "unknown"

@@ -184,9 +184,36 @@ class RouterTest(unittest.TestCase):
         self.assertTrue(any("also a executor" in x for x in v))
 
     def test_classify_provider(self):
-        self.assertEqual(router.classify_provider("pi-anthropic"), "oauth/claude-pro")
-        self.assertEqual(router.classify_provider("anthropic"), "api/anthropic")
-        self.assertEqual(router.classify_provider("deepseek-official"), "api/deepseek")
+        none = {}   # no DSH profile definitions: the name decides
+        self.assertEqual(router.classify_provider("pi-anthropic", none), "oauth/claude-pro")
+        self.assertEqual(router.classify_provider("anthropic", none), "api/anthropic")
+        self.assertEqual(router.classify_provider("deepseek-official", none), "api/deepseek")
+
+    def test_classify_provider_from_the_dsh_profile(self):
+        """In a DSH profile `anthropic` can be an OAuth bridge to a Claude subscription: the definition decides."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.p = Path(tmp.name)
+        prof = self.p / "dsh/profiles"
+        (prof / "web").mkdir(parents=True)
+        (prof / "web/cordis.patch.yml").write_text(
+            "- id: llm\n  config:\n    providers:\n      anthropic:\n        displayName: Anthropic (Claude OAuth)\n"
+            "        apiKeyEnv: ANTHROPIC_OAUTH_TOKEN\n        api: anthropic-messages\n"
+            "        baseURL: https://api.anthropic.com\n      oauth-glm:\n        displayName: OAuth · GLM\n"
+            "        apiKeyEnv: DSH_OAUTH_SUBS_API_KEY\n        compat:\n          forceAdaptiveThinking: true\n"
+            "        baseURL: http://127.0.0.1:8318/glm\n      anthropic-api:\n        displayName: Anthropic\n"
+            "        apiKeyEnv: ANTHROPIC_API_KEY\n        baseURL: https://api.anthropic.com\n")
+        (prof / "tui").mkdir()
+        (prof / "tui/cordis.patch.yml").write_text(
+            "providers:\n  anthropic:\n    displayName: Anthropic\n    apiKeyEnv: ANTHROPIC_API_KEY\n")
+        defs = {k.lower(): v for k, v in router.dsh_provider_defs(self.p / "dsh").items()}
+        self.assertEqual(defs["oauth-glm"]["baseURL"], "http://127.0.0.1:8318/glm")  # after a nested block
+        self.assertEqual(router.classify_provider("anthropic", defs), "oauth/claude-pro")  # web wins over tui
+        self.assertEqual(router.classify_provider("anthropic-api", defs), "api/anthropic")
+        self.assertEqual(router.classify_provider("oauth-glm", defs), "oauth/glm")
+        allowed = router.load()["policy"]["allowed_billing"]["manager"]
+        self.assertIn(router.classify_provider("anthropic", defs), allowed)
+        self.assertNotIn(router.classify_provider("oauth-glm", defs), allowed)  # GLM can never be the manager
 
 
 class BudgetHealthTest(Tmp):
