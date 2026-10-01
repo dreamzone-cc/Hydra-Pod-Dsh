@@ -9,6 +9,10 @@ Every task is a workflow recorded in `<project>/_receipts/ledger.jsonl`, an appe
 - Move forward with `hydra-pod-dsh wf advance WF-<T> <STATE>` at each step: `PLANNING` → `PLAN_READY` (ticket written) → `ASSIGNING` (claim) → `EXECUTING` (build started) → `TESTING` (your acceptance rerun) → `REVIEWING` (review started) → `VERIFYING` (you validate findings).
 - Illegal moves exit with status 2 and say what is allowed. Treat that as a signal to re-read the state (`hydra-pod-dsh wf brief WF-<T>`), not something to retry blindly.
 
+## Plans
+
+A task of several tickets is a plan. Write all its tickets first, then approve the plan once, before any build: `hydra-pod-dsh plan approve <name> --ticket T1 --ticket T2:T1 --reason '<why this split>'` (`T2:T1` = T2 depends on T1). `hydra-pod-dsh plan show <name>` lists the waves and what may start now. `wf advance … EXECUTING` is refused for a ticket whose dependencies are not DONE. Builds still run one at a time (Hydra-Pod's preflight needs a clean tree). To change the split, approve the plan again under the same name.
+
 ## Decisions
 
 Decide as Verifier with a reason: `hydra-pod-dsh wf decide WF-<T> APPROVE|REWORK|RE_REVIEW|REPLAN|ESCALATE|ABORT --reason '<why>'`.
