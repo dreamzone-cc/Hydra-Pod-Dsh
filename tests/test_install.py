@@ -118,11 +118,18 @@ class SkillReferencesTest(unittest.TestCase):
         if not hp.is_dir():
             self.skipTest(f"{hp} not present")
         refs = set()
-        for skill in ROOT.glob("skills/*/SKILL.md"):
+        for skill in [*ROOT.glob("skills/*/SKILL.md"), *ROOT.glob("skills/*/references/*.md")]:
             refs |= set(re.findall(r"~/Hydra-Pod/([\w./-]+[\w/])", skill.read_text()))
         self.assertTrue(refs)
         missing = [r for r in sorted(refs) if not (hp / r).exists()]
         self.assertEqual(missing, [])
+
+    def test_hydra_pod_skill_references_exist(self):
+        import re
+        skill = ROOT / "skills/hydra-pod"
+        refs = set(re.findall(r"`(references/[\w.-]+\.md)`", (skill / "SKILL.md").read_text()))
+        self.assertEqual(refs, {"references/first-use.md", "references/ledger.md", "references/memory.md"})
+        self.assertEqual([r for r in sorted(refs) if not (skill / r).is_file()], [])
 
 
 if __name__ == "__main__":

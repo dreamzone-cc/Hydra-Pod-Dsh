@@ -55,6 +55,10 @@ test('commandArgs: strict grammar, argv only, reason required for control', () =
   assert.match(commandArgs('hydra-pod-control', 'WF-T6 pause'), /usage/)
   assert.match(commandArgs('hydra-pod-control', 'WF-T6 delete everything'), /usage/)
   assert.match(commandArgs('hydra-pod-control', '$(id) pause x'), /usage/)
+  assert.deepEqual(commandArgs('hydra-pod-profile', ''), ['profile', 'list'])
+  assert.deepEqual(commandArgs('hydra-pod-profile', 'economy'), ['profile', 'set', 'economy'])
+  assert.match(commandArgs('hydra-pod-profile', '../x'), /usage/)
+  assert.match(commandArgs('hydra-pod-profile', 'a b'), /usage/)
   assert.match(commandArgs('other', ''), /unknown/)
 })
 
@@ -82,7 +86,7 @@ test('commands end to end: registered on ctx.commands, control writes a user dec
       },
     }
     apply(ctx)
-    assert.deepEqual(Object.keys(registered).sort(), ['hydra-pod-control', 'hydra-pod-status', 'hydra-pod-timeline'])
+    assert.deepEqual(Object.keys(registered).sort(), ['hydra-pod-control', 'hydra-pod-profile', 'hydra-pod-status', 'hydra-pod-timeline'])
     for (const d of Object.values(registered)) assert.match(d.name, /^[a-z][a-z0-9_-]*$/)
     const bad = await registered['hydra-pod-control'].handler({ rawInput: 'WF-T1 explode now' })
     assert.equal(bad.kind, 'error')
@@ -96,6 +100,9 @@ test('commands end to end: registered on ctx.commands, control writes a user dec
     const tl = await registered['hydra-pod-timeline'].handler({ rawInput: '' })
     assert.equal(tl.kind, 'success')
     assert.match(tl.text, /human-decision/)
+    const pr = await registered['hydra-pod-profile'].handler({ rawInput: 'economy' })
+    assert.equal(pr.kind, 'success', pr.text)
+    assert.equal(readFileSync(join(project, '.hydra', 'profile'), 'utf8').trim(), 'economy')
     const st = await registered['hydra-pod-status'].handler({ rawInput: '' })
     assert.equal(st.kind, 'success')
     assert.match(st.text, /Hydra-Pod/)

@@ -1,20 +1,29 @@
 {
-  "_doc": "Agent registry (architecture §11 rev 2). Role -> Agent -> Runtime -> Model -> Billing route. The Router (hydra_pod_dsh/router.py) only picks agents whose billing route is allowed and whose runtime can honour the model (§12, §19).",
+  "_doc": "Agent registry v2 (architecture §11 rev 2, technical paper §5). Role -> Agent -> Runtime -> Model -> Billing route, plus pools: several agents per role, chosen by the Router (hydra_pod_dsh/router.py) only among agents whose billing route is allowed and whose runtime can honour the model (§12, §19). `vendor` is the model's maker: a second reviewer must come from a vendor other than the executor's. Extensions add agents and pools in agents.d/*.json; only this file sets the policy.",
+  "schema_version": 2,
   "agents": {
     "manager": {"role": "manager", "runtime": "dsh", "model": "anthropic/claude-opus-5-5", "billing": "api/anthropic",
-                "capabilities": ["planning", "decomposition", "verification", "architecture"]},
+                "vendor": "anthropic", "capabilities": ["planning", "decomposition", "verification", "architecture"]},
     "manager-oauth": {"role": "manager", "runtime": "dsh", "model": "pi-anthropic/claude-opus-5", "billing": "oauth/claude-pro",
-                      "capabilities": ["planning", "decomposition", "verification", "architecture"],
+                      "vendor": "anthropic", "capabilities": ["planning", "decomposition", "verification", "architecture"],
                       "note": "operator-approved 2026-09-30: the Claude Pro subscription via OAuth is an allowed manager billing route; the API-key agent stays the default"},
     "builder": {"role": "executor", "runtime": "opencode", "model": "opencode-go/deepseek-v4.1-flash",
-                "billing": "subscription/opencode-go", "capabilities": ["coding", "terminal", "tests"]},
+                "billing": "subscription/opencode-go", "vendor": "deepseek", "capabilities": ["coding", "terminal", "tests"]},
     "reviewer": {"role": "reviewer", "runtime": "opencode", "model": "zai-coding-plan/glm-5.3",
-                 "billing": "subscription/zai-lite", "read_only": "opencode agent 'reviewer'", "capabilities": ["code-review"]},
+                 "billing": "subscription/zai-lite", "vendor": "zhipu", "read_only": "opencode agent 'reviewer'", "capabilities": ["code-review"]},
     "reviewer-zcode": {"role": "reviewer", "runtime": "zcode", "model": "zai-coding-plan/glm-5.3",
-                       "billing": "subscription/zai-lite", "read_only": "ZCode tool set Read/Glob/Grep", "capabilities": ["code-review"]},
+                       "billing": "subscription/zai-lite", "vendor": "zhipu", "read_only": "ZCode tool set Read/Glob/Grep", "capabilities": ["code-review"]},
     "specialist-dsh": {"role": "specialist", "runtime": "dsh-subagent", "model": "anthropic/claude-opus-5-5",
-                       "billing": "api/anthropic", "capabilities": ["security", "architecture", "code-review"],
+                       "billing": "api/anthropic", "vendor": "anthropic", "capabilities": ["security", "architecture", "code-review"],
                        "note": "in-process DSH child: the only runtime where the model can be chosen per request"}
+  },
+  "pools": {
+    "executor": {"strategy": "score", "members": [
+      {"agent": "builder", "tier": "fast", "for": ["S", "M", "L"], "max_parallel": 3}
+    ]},
+    "reviewer": {"strategy": "cascade", "stages": [
+      {"agent": "reviewer", "fallback": ["reviewer-zcode"], "when": ["always"]}
+    ], "_note": "A second stage (e.g. {\"agent\": \"<id>\", \"when\": [\"risk:high\", \"disagreement\"]}) needs a reviewer with enforced read-only, an allowed billing route, and a vendor other than the executor's. None is registered yet."}
   },
   "runtimes": {
     "dsh": {"model_override": true, "stream": true, "resume": true, "usage": "dsh-session"},
