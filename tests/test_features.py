@@ -168,9 +168,10 @@ class RouterTest(unittest.TestCase):
         reg = router.load()
         self.assertEqual(router.route("executor", reg=reg)["billing"], "subscription/opencode-go")
         with self.assertRaises(router.PolicyError):   # zcode cannot select a model; opencode reviewer can
-            router.route("reviewer", model="other/m", reg=reg, exclude=("reviewer",))
+            router.route("reviewer", model="other/m", reg=reg, exclude=("reviewer", "reviewer-claude"))
+        self.assertEqual(router.route("reviewer", capability="security", reg=reg)["agent"], "reviewer-claude")
         with self.assertRaises(router.PolicyError):
-            router.route("reviewer", capability="security", reg=reg)
+            router.route("reviewer", capability="security", reg=reg, exclude=("reviewer-claude",))
 
     def test_registry_violations_detected(self):
         reg = router.load()

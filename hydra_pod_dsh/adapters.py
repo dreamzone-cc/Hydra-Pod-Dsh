@@ -56,7 +56,14 @@ class OpencodeAdapter(Adapter):
         return super().quota(agent, now)
 
     def dispatch(self, agent, role, task):
-        verb = "build" if role == "executor" else "review"
+        if role == "advisor":
+            return {"kind": "shell", "background": True,
+                    "command": f"hydra-pod-dsh wf consult WF-{task} ask --question-file <file> --advisor {agent.get('name', '<agent>')}"}
+        if role == "reviewer" and not agent.get("model", "").startswith("zai-coding-plan/"):
+            # hydra-pod-dispatch reviews only with GLM-5.3; other models run through hydra-pod-dsh
+            return {"kind": "shell", "background": True,
+                    "command": f"hydra-pod-dsh run review {task} --agent {agent.get('name', '<agent>')}"}
+        verb = "build" if role in ("executor", "tester") else "review"
         return {"kind": "shell", "command": f"hydra-pod-dispatch {verb} {task}", "background": True}
 
 
@@ -70,6 +77,23 @@ class ZcodeAdapter(Adapter):
         if role != "reviewer":
             raise ValueError("zcode only reviews")
         return {"kind": "shell", "command": f"hydra-pod-dispatch review {task} --reviewer zcode", "background": True}
+
+
+class ClaudeCliAdapter(Adapter):
+    """The Claude Code CLI on the user's Claude subscription (its supported client), read-only.
+
+    The subscription has no usage API, so its window is unknown (never guessed);
+    `claude -p` itself refuses when the plan's limit is reached."""
+    runtime, binary = "claude-cli", "claude"
+
+    def dispatch(self, agent, role, task):
+        name = agent.get("name", "<agent>")
+        if role == "advisor":
+            return {"kind": "shell", "background": True,
+                    "command": f"hydra-pod-dsh wf consult WF-{task} ask --question-file <file> --advisor {name}"}
+        if role not in ("reviewer", "security"):
+            raise ValueError("the Claude Code CLI agents here are read-only: reviewer, security or advisor")
+        return {"kind": "shell", "background": True, "command": f"hydra-pod-dsh run review {task} --agent {name}"}
 
 
 class DshSubagentAdapter(Adapter):
@@ -95,5 +119,5 @@ def for_runtime(runtime: str) -> Adapter | None:
     return ADAPTERS.get(runtime)
 
 
-for _a in (OpencodeAdapter(), ZcodeAdapter(), DshSubagentAdapter()):
+for _a in (OpencodeAdapter(), ZcodeAdapter(), ClaudeCliAdapter(), DshSubagentAdapter()):
     register(_a)

@@ -21,6 +21,11 @@
   hydra-pod-dsh wf pack <WF> [--task T] [--tokens N] [--json]
                                               write the ticket's context pack (_receipts/<ticket>.context.md)
   hydra-pod-dsh wf reviewers <WF> [--task T] [--json]   review stages this ticket needs, and who runs each
+  hydra-pod-dsh wf consult <WF> ask --question-file Q.md [--advisor NAME ...] [--context FILE ...]
+                                              independent opinions from the advisor panel (read-only)
+  hydra-pod-dsh wf consult <WF> decide --text DECISION --reason TEXT   the manager's decision on the latest consult
+  hydra-pod-dsh run review <ticket> --agent NAME [--wf WF] [--max-budget-usd N]
+                                              a read-only review stage hydra-pod-dispatch cannot run (e.g. reviewer-claude)
   hydra-pod-dsh wf amend <WF> --field F --reason TEXT [--before X --after Y]   manager corrects its ticket
   hydra-pod-dsh wf check [<WF>] [--json]      ledger vs ticket folders (exit 4 on drift)
   hydra-pod-dsh wf report <WF> [--write]      closing report (Markdown); --write saves _receipts/<WF>.report.md
@@ -55,9 +60,10 @@ import json
 import os
 import sys
 import time
+from pathlib import Path
 
 from . import (adapters, bench, brief, budget, consistency, diffsum, findings, lessons, pack, plan, profiles, repomap,
-               skills, steward, health, ledger, live, manager_usage, report, resources, router, stages,
+               runner, skills, steward, health, ledger, live, manager_usage, report, resources, router, stages,
                tokens, usage, workflow)
 
 SCHEMA_VERSION = 1  # of the JSON printed by `status --json` and `wf ... --json` (§13.3)
@@ -295,7 +301,8 @@ def _wf(a) -> int:
         reg = router.load()
         for st in cascade:
             if st["agent"]:
-                st["dispatch"] = adapters.for_runtime(st["runtime"]).dispatch(reg["agents"][st["agent"]], "reviewer", task)
+                st["dispatch"] = adapters.for_runtime(st["runtime"]).dispatch(
+                    {**reg["agents"][st["agent"]], "name": st["agent"]}, "reviewer", task)
         if a.json:
             print(json.dumps({"schema_version": SCHEMA_VERSION, "task": task, "risk": risk, "profile": prof["name"],
                               "stages": cascade}))
@@ -308,6 +315,8 @@ def _wf(a) -> int:
                       + (f" — {st['dispatch']['command']}" if st["needed"] and st.get("dispatch") else "")
                       + (f" [skipped: {tried}]" if tried else ""))
         return 3 if any(st["needed"] and not st["agent"] for st in cascade) else 0
+    elif a.wf == "consult":
+        return _consult(project, a)
     elif a.wf == "amend":
         w = workflow.amend(project, a.workflow, a.reason, field=a.field, before=a.before, after=a.after, actor=actor)
         print(f"{w.id}: {w.state} — amended {a.field}")
@@ -387,6 +396,117 @@ def _wf(a) -> int:
     note = (w.last_decision or {}) if a.wf == "decide" else {}
     print(f"{w.id}: {w.state} [{w.folder}]" + (f" — {note}" if note else ""))
     return 0
+
+
+def _budget_gate(project: str, wid: str) -> int | None:
+    """Exit 3 when the workflow's budget is exhausted; warnings go to stderr."""
+    if not workflow.get(project, wid).budget:
+        return None
+    resources.sync(project, wid)
+    b = budget.check(project, wid)
+    for d in b["dimensions"]:
+        if d["level"] in ("warn", "block"):
+            print(f"hydra-pod-dsh: {'BLOCKED' if d['level'] == 'block' else 'warning'}: {d['dimension']} at "
+                  f"{d['percent']}% of budget", file=sys.stderr)
+    return 3 if b["level"] == "block" else None
+
+
+def _cost_task(project: str, task: str) -> str:
+    """The name hydra-pod-dispatch gives the ticket's cost log and reports: the ticket file's stem."""
+    t = diffsum.ticket_path(project, task)
+    return t.stem if t else task
+
+
+def _run_review(project: str, a) -> int:
+    workflow.validate_ticket_id(a.ticket)
+    reg = router.load()
+    ag = reg["agents"].get(a.agent)
+    if ag is None:
+        raise ValueError(f"no agent {a.agent!r} in the registry")
+    pools = [r for r, p in reg["pools"].items() if r in ("reviewer", "security")
+             and any(a.agent in [m["agent"]] + list(m.get("fallback", [])) for m in router._members(p))]
+    if not pools:
+        raise ValueError(f"{a.agent} is in no reviewer or security pool")
+    why = router._passes(a.agent, ag, pools[0], reg)
+    if why:
+        print(f"hydra-pod-dsh: {a.agent}: {why}", file=sys.stderr)
+        return 3
+    if ag["runtime"] not in runner.PROVIDER or (ag["runtime"] == "opencode" and ag["model"].startswith("zai-coding-plan/")):
+        raise ValueError(f"{a.agent} runs through hydra-pod-dispatch review, not here")
+    if a.wf and _budget_gate(project, a.wf):
+        return 3
+    stem = _cost_task(project, a.ticket)
+    report = Path(project) / "_receipts" / f"{stem}.review-{a.agent}.md"
+    try:
+        prompt = runner.review_prompt(project, a.ticket, a.agent, ag["model"])
+    except runner.RunError as e:
+        raise ValueError(str(e))  # bad input: one clean line, exit 2
+    try:
+        r = runner.run(project, a.agent, ag, prompt, report, stem, "review", a.max_budget_usd)
+    except runner.RunError as e:
+        print(f"hydra-pod-dsh: {e}", file=sys.stderr)
+        return 1
+    if a.wf:
+        resources.sync(project, a.wf)
+    cost = "-" if r["list_cost_usd"] is None else f"${r['list_cost_usd']:.4f} list"
+    print(f"{r['report']}: {a.agent} ({ag['model']}) in {r['seconds']}s, work {tokens.human(tokens.work(tokens.normalize(r['tokens'])))} "
+          f"tokens, {cost} [{ag['billing']}]")
+    return 0
+
+
+def _consult(project: str, a) -> int:
+    w = workflow.get(project, a.workflow)
+    reg = router.load()
+    previous = [e for e in workflow.timeline(project, w.id) if e["type"] == "hydra/consult"]
+    if a.action == "decide":
+        asks = [e for e in previous if e["payload"].get("action") == "ask"]
+        if not asks:
+            raise ValueError(f"{w.id} has no consult to decide on")
+        if not a.text or not (a.reason or "").strip():
+            raise ValueError("consult decide needs --text (the decision) and --reason")
+        n = asks[-1]["payload"]["n"]
+        workflow.record(project, w.id, "hydra/consult", ignorable=True, reason=a.reason,
+                        payload={"action": "decide", "n": n, "decision": a.text})
+        print(f"{w.id}: consult {n} decided — {a.text}")
+        return 0
+    if not a.question_file:
+        raise ValueError("consult ask needs --question-file")
+    with open(a.question_file, encoding="utf-8") as f:
+        question = f.read()
+    if len(question.strip()) < 20:
+        raise ValueError("the question is too short to consult on")
+    pool = reg["pools"].get("advisor")
+    names = a.advisor or ([m["agent"] for m in router._members(pool)] if pool else [])
+    if not names:
+        raise ValueError("no advisors: the registry has no advisor pool, and none was named")
+    for name in names:
+        ag = reg["agents"].get(name)
+        why = "not in the registry" if ag is None else router._passes(name, ag, "advisor", reg)
+        if why:
+            print(f"hydra-pod-dsh: advisor {name}: {why}", file=sys.stderr)
+            return 3
+    if _budget_gate(project, w.id):
+        return 3
+    n = 1 + sum(e["payload"].get("action") == "ask" for e in previous)
+    prompt = runner.consult_prompt(question, a.context)
+    stem = _cost_task(project, w.task_id)
+    reports, failed = [], []
+    for name in names:
+        out = Path(project) / "_receipts" / f"{w.id}.consult-{n}-{name}.md"
+        try:
+            r = runner.run(project, name, reg["agents"][name], prompt, out, stem, "consult", a.max_budget_usd)
+            reports.append(r["report"])
+            print(f"  {name}: {r['report']} ({r['seconds']}s)")
+        except runner.RunError as e:
+            failed.append({"advisor": name, "error": str(e)[:300]})
+            print(f"  {name}: FAILED — {e}", file=sys.stderr)
+    resources.sync(project, w.id)
+    workflow.record(project, w.id, "hydra/consult", ignorable=True,
+                    payload={"action": "ask", "n": n, "advisors": names, "reports": reports, "failed": failed,
+                             "question": question.strip()[:500]})
+    print(f"{w.id}: consult {n}: {len(reports)} opinion(s)" + (f", {len(failed)} failed" if failed else "")
+          + f". Weigh them, then: hydra-pod-dsh wf consult {w.id} decide --text '…' --reason '…'")
+    return 0 if reports else 1
 
 
 def _score_skills(project: str, w: "workflow.Workflow") -> None:
@@ -481,6 +601,11 @@ def main(argv=None) -> int:
     x.add_argument("--tokens", type=int, default=pack.DEFAULT_TOKENS, help="budget of the pack")
     x = common(wsub.add_parser("reviewers"))
     x.add_argument("workflow"); x.add_argument("--task"); x.add_argument("--json", action="store_true")
+    x = common(wsub.add_parser("consult"))
+    x.add_argument("workflow"); x.add_argument("action", choices=("ask", "decide"))
+    x.add_argument("--question-file"); x.add_argument("--advisor", action="append")
+    x.add_argument("--context", action="append", default=[]); x.add_argument("--max-budget-usd", type=float)
+    x.add_argument("--text"); x.add_argument("--reason")
     x = common(wsub.add_parser("amend"))
     x.add_argument("workflow"); x.add_argument("--field", required=True); x.add_argument("--reason", required=True)
     x.add_argument("--before"); x.add_argument("--after")
@@ -531,6 +656,10 @@ def main(argv=None) -> int:
     x = sub.add_parser("steward", help="the project steward's core memory (.hydra/steward/core.md)")
     x.add_argument("action", choices=("init", "set", "show")); x.add_argument("section", nargs="?")
     x.add_argument("--text"); x.add_argument("--reason"); x.add_argument("--project", default=os.getcwd())
+    x = sub.add_parser("run", help="run a read-only review stage that hydra-pod-dispatch cannot run")
+    x.add_argument("what", choices=("review",)); x.add_argument("ticket"); x.add_argument("--agent", required=True)
+    x.add_argument("--wf"); x.add_argument("--max-budget-usd", type=float)
+    x.add_argument("--project", default=os.getcwd())
     r = sub.add_parser("route")
     r.add_argument("role"); r.add_argument("--capability"); r.add_argument("--model"); r.add_argument("--json", action="store_true")
     pc = sub.add_parser("policy")
@@ -669,6 +798,8 @@ def _dispatch(ap, a) -> int:
                 raise ValueError("steward set needs a SECTION and --text")
             print(f"steward memory: {steward.set_section(project, a.section, a.text, a.reason or '')}")
         return 0
+    if a.cmd == "run":
+        return _run_review(os.path.abspath(a.project), a)
     if a.cmd == "map":
         if a.tokens < 100:
             raise ValueError("--tokens must be at least 100")

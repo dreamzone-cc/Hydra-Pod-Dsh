@@ -2,45 +2,285 @@
   "_doc": "Agent registry v2 (architecture §11 rev 2, technical paper §5). Role -> Agent -> Runtime -> Model -> Billing route, plus pools: several agents per role, chosen by the Router (hydra_pod_dsh/router.py) only among agents whose billing route is allowed and whose runtime can honour the model (§12, §19). `vendor` is the model's maker: a second reviewer must come from a vendor other than the executor's. Extensions add agents and pools in agents.d/*.json; only this file sets the policy.",
   "schema_version": 2,
   "agents": {
-    "manager": {"role": "manager", "runtime": "dsh", "model": "anthropic/claude-opus-5-5", "billing": "api/anthropic",
-                "vendor": "anthropic", "capabilities": ["planning", "decomposition", "verification", "architecture"]},
-    "manager-oauth": {"role": "manager", "runtime": "dsh", "model": "pi-anthropic/claude-opus-5", "billing": "oauth/claude-pro",
-                      "vendor": "anthropic", "capabilities": ["planning", "decomposition", "verification", "architecture"],
-                      "note": "operator-approved 2026-09-30: the Claude Pro subscription via OAuth is an allowed manager billing route; the API-key agent stays the default"},
-    "builder": {"role": "executor", "runtime": "opencode", "model": "opencode-go/deepseek-v4.1-flash",
-                "billing": "subscription/opencode-go", "vendor": "deepseek", "capabilities": ["coding", "terminal", "tests"]},
-    "reviewer": {"role": "reviewer", "runtime": "opencode", "model": "zai-coding-plan/glm-5.3",
-                 "billing": "subscription/zai-lite", "vendor": "zhipu", "read_only": "opencode agent 'reviewer'", "capabilities": ["code-review"]},
-    "reviewer-zcode": {"role": "reviewer", "runtime": "zcode", "model": "zai-coding-plan/glm-5.3",
-                       "billing": "subscription/zai-lite", "vendor": "zhipu", "read_only": "ZCode tool set Read/Glob/Grep", "capabilities": ["code-review"]},
-    "specialist-dsh": {"role": "specialist", "runtime": "dsh-subagent", "model": "anthropic/claude-opus-5-5",
-                       "billing": "api/anthropic", "vendor": "anthropic", "capabilities": ["security", "architecture", "code-review"],
-                       "note": "in-process DSH child: the only runtime where the model can be chosen per request"}
+    "manager": {
+      "role": "manager",
+      "runtime": "dsh",
+      "model": "anthropic/claude-opus-5-5",
+      "billing": "api/anthropic",
+      "vendor": "anthropic",
+      "capabilities": [
+        "planning",
+        "decomposition",
+        "verification",
+        "architecture"
+      ]
+    },
+    "manager-oauth": {
+      "role": "manager",
+      "runtime": "dsh",
+      "model": "pi-anthropic/claude-opus-5",
+      "billing": "oauth/claude-pro",
+      "vendor": "anthropic",
+      "capabilities": [
+        "planning",
+        "decomposition",
+        "verification",
+        "architecture"
+      ],
+      "note": "operator-approved 2026-09-30: the Claude Pro subscription via OAuth is an allowed manager billing route; the API-key agent stays the default"
+    },
+    "builder": {
+      "role": "executor",
+      "runtime": "opencode",
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "billing": "subscription/opencode-go",
+      "vendor": "deepseek",
+      "capabilities": [
+        "coding",
+        "terminal",
+        "tests"
+      ]
+    },
+    "reviewer": {
+      "role": "reviewer",
+      "runtime": "opencode",
+      "model": "zai-coding-plan/glm-5.3",
+      "billing": "subscription/zai-lite",
+      "vendor": "zhipu",
+      "read_only": "opencode agent 'reviewer'",
+      "capabilities": [
+        "code-review"
+      ]
+    },
+    "reviewer-zcode": {
+      "role": "reviewer",
+      "runtime": "zcode",
+      "model": "zai-coding-plan/glm-5.3",
+      "billing": "subscription/zai-lite",
+      "vendor": "zhipu",
+      "read_only": "ZCode tool set Read/Glob/Grep",
+      "capabilities": [
+        "code-review"
+      ]
+    },
+    "specialist-dsh": {
+      "role": "specialist",
+      "runtime": "dsh-subagent",
+      "model": "anthropic/claude-opus-5-5",
+      "billing": "api/anthropic",
+      "vendor": "anthropic",
+      "capabilities": [
+        "security",
+        "architecture",
+        "code-review"
+      ],
+      "note": "in-process DSH child: the only runtime where the model can be chosen per request"
+    },
+    "reviewer-claude": {
+      "role": "reviewer",
+      "runtime": "claude-cli",
+      "model": "claude-sonnet-5-5",
+      "billing": "subscription/claude-code",
+      "vendor": "anthropic",
+      "read_only": "Claude Code CLI with --tools Read,Grep,Glob: no shell, edit or write tool exists in the session",
+      "capabilities": [
+        "code-review",
+        "security",
+        "architecture"
+      ],
+      "note": "second review stage (operator decision 2026-10-01); Sonnet, so it is not the manager's model"
+    },
+    "advisor-claude": {
+      "role": "advisor",
+      "runtime": "claude-cli",
+      "model": "claude-sonnet-5-5",
+      "billing": "subscription/claude-code",
+      "vendor": "anthropic",
+      "read_only": "Claude Code CLI with --tools Read,Grep,Glob: no shell, edit or write tool exists in the session",
+      "capabilities": [
+        "architecture",
+        "planning"
+      ]
+    },
+    "advisor-openrouter": {
+      "role": "advisor",
+      "runtime": "opencode",
+      "model": "openrouter/google/gemini-2.5-pro",
+      "billing": "api/openrouter",
+      "vendor": "google",
+      "read_only": "opencode agent 'reviewer'",
+      "capabilities": [
+        "architecture",
+        "planning"
+      ],
+      "note": "pay per use: runs only when the manager calls `wf consult` (operator decision 2026-10-01)"
+    }
   },
   "pools": {
-    "executor": {"strategy": "score", "members": [
-      {"agent": "builder", "tier": "fast", "for": ["S", "M", "L"], "max_parallel": 3}
-    ]},
-    "reviewer": {"strategy": "cascade", "stages": [
-      {"agent": "reviewer", "fallback": ["reviewer-zcode"], "when": ["always"]}
-    ], "_note": "A second stage (e.g. {\"agent\": \"<id>\", \"when\": [\"risk:high\", \"disagreement\"]}) needs a reviewer with enforced read-only, an allowed billing route, and a vendor other than the executor's. None is registered yet."}
+    "executor": {
+      "strategy": "score",
+      "members": [
+        {
+          "agent": "builder",
+          "tier": "fast",
+          "for": [
+            "S",
+            "M",
+            "L"
+          ],
+          "max_parallel": 3
+        }
+      ]
+    },
+    "reviewer": {
+      "strategy": "cascade",
+      "stages": [
+        {
+          "agent": "reviewer",
+          "fallback": [
+            "reviewer-zcode"
+          ],
+          "when": [
+            "always"
+          ]
+        },
+        {
+          "agent": "reviewer-claude",
+          "when": [
+            "risk:high",
+            "disagreement"
+          ]
+        }
+      ]
+    },
+    "advisor": {
+      "strategy": "panel",
+      "members": [
+        {
+          "agent": "advisor-claude"
+        },
+        {
+          "agent": "advisor-openrouter"
+        }
+      ]
+    },
+    "tester": {
+      "strategy": "score",
+      "accepts": {
+        "roles": [
+          "executor"
+        ],
+        "capability": "tests"
+      },
+      "members": [
+        {
+          "agent": "builder",
+          "tier": "fast"
+        }
+      ]
+    },
+    "security": {
+      "strategy": "cascade",
+      "accepts": {
+        "roles": [
+          "reviewer"
+        ],
+        "capability": "security"
+      },
+      "stages": [
+        {
+          "agent": "reviewer-claude",
+          "when": [
+            "always"
+          ]
+        }
+      ]
+    }
   },
   "runtimes": {
-    "dsh": {"model_override": true, "stream": true, "resume": true, "usage": "dsh-session"},
-    "dsh-subagent": {"model_override": true, "stream": true, "resume": true, "usage": "dsh-session"},
-    "dsh-sdk": {"model_override": true, "stream": false, "resume": false, "usage": "child-session"},
-    "opencode": {"model_override": true, "stream": true, "resume": true, "usage": "cost-log"},
-    "zcode": {"model_override": false, "stream": false, "resume": true, "usage": "zai-credits"},
-    "acp": {"model_override": false, "stream": false, "resume": false, "usage": "none"},
-    "claude-code-subagent": {"model_override": false, "stream": false, "resume": false, "usage": "none"}
+    "dsh": {
+      "model_override": true,
+      "stream": true,
+      "resume": true,
+      "usage": "dsh-session"
+    },
+    "dsh-subagent": {
+      "model_override": true,
+      "stream": true,
+      "resume": true,
+      "usage": "dsh-session"
+    },
+    "dsh-sdk": {
+      "model_override": true,
+      "stream": false,
+      "resume": false,
+      "usage": "child-session"
+    },
+    "opencode": {
+      "model_override": true,
+      "stream": true,
+      "resume": true,
+      "usage": "cost-log"
+    },
+    "zcode": {
+      "model_override": false,
+      "stream": false,
+      "resume": true,
+      "usage": "zai-credits"
+    },
+    "acp": {
+      "model_override": false,
+      "stream": false,
+      "resume": false,
+      "usage": "none"
+    },
+    "claude-code-subagent": {
+      "model_override": false,
+      "stream": false,
+      "resume": false,
+      "usage": "none"
+    },
+    "claude-cli": {
+      "model_override": true,
+      "stream": false,
+      "resume": false,
+      "usage": "claude-json"
+    }
   },
   "policy": {
     "allowed_billing": {
-      "manager": ["api/anthropic", "oauth/claude-pro"],
-      "executor": ["subscription/opencode-go"],
-      "reviewer": ["subscription/zai-lite"],
-      "specialist": ["api/anthropic"]
+      "manager": [
+        "api/anthropic",
+        "oauth/claude-pro"
+      ],
+      "executor": [
+        "subscription/opencode-go"
+      ],
+      "reviewer": [
+        "subscription/zai-lite",
+        "subscription/claude-code"
+      ],
+      "specialist": [
+        "api/anthropic"
+      ],
+      "advisor": [
+        "subscription/claude-code",
+        "api/openrouter"
+      ]
     },
-    "forbidden_billing": ["api/zai-payg", "subscription/opencode-go:glm-5.3"]
+    "forbidden_billing": [
+      "api/zai-payg",
+      "subscription/opencode-go:glm-5.3"
+    ],
+    "_operator_decisions": [
+      {
+        "date": "2026-09-30",
+        "decision": "oauth/claude-pro allowed as a manager billing route"
+      },
+      {
+        "date": "2026-10-01",
+        "decision": "subscription/claude-code (Claude Code CLI, the supported client) allowed for a read-only second reviewer and advisors; api/openrouter (pay per use, via opencode) allowed for advisors only, run on the manager's explicit `wf consult`"
+      }
+    ]
   }
 }
