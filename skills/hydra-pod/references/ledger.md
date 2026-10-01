@@ -1,6 +1,6 @@
 # Workflow ledger: full rules
 
-Every task is a workflow recorded in `<project>/_receipts/ledger.jsonl`, an append-only, versioned log that is the source of truth for state (commit it with the tickets). Drive it with `hydra-pod-dsh wf` from the project root; each call also updates the live stage the `dsh-hydra-pod` plugin shows above the composer. These calls write only inside the project and `~/.cache/hydra-pod-dsh`, and need no sandbox escalation.
+Every task is a workflow recorded in `<project>/_receipts/ledger.jsonl`, an append-only, versioned log that is the source of truth for state (commit it with the tickets). Drive it with `hydra-pod-dsh wf` from the project root; each call also updates the live stage the `dsh-hydra-pod` plugin shows above the composer. These calls work inside DSH's default `workspace-write` sandbox and need no escalation: they write in the project, and treat `~/.cache/hydra-pod-dsh` as optional (read-only there, so the live stage falls back to `.hydra/live-stage.json` in the project).
 
 ## Start and moves
 

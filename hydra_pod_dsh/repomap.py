@@ -118,12 +118,15 @@ def index(project) -> dict:
             continue
         defs, refs = extract(text)
         out[f] = {"defs": defs, "refs": refs}
-    cache.parent.mkdir(parents=True, exist_ok=True)
-    for old in cache.parent.glob(f"{cache.name.split('-')[0]}-*.json"):
-        old.unlink(missing_ok=True)  # one cached state per project
-    tmp = cache.with_suffix(".tmp")
-    tmp.write_text(json.dumps(out))
-    tmp.replace(cache)
+    try:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        for old in cache.parent.glob(f"{cache.name.split('-')[0]}-*.json"):
+            old.unlink(missing_ok=True)  # one cached state per project
+        tmp = cache.with_suffix(f".{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(out))
+        tmp.replace(cache)
+    except OSError:
+        pass  # read-only cache (DSH's workspace-write sandbox): the index is rebuilt next time
     return out
 
 

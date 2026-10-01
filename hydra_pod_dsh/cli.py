@@ -199,11 +199,17 @@ def render(st: dict) -> str:
 
 
 def _sync_stage(project: str, w: "workflow.Workflow") -> None:
-    """Keep the live stage in step with the workflow the manager just moved."""
-    if w.state in workflow.TERMINAL or w.state == "BLOCKED":
-        live.clear_stage()
-    elif w.state in STAGE_FOR_STATE:
-        live.set_stage(w.task_id, STAGE_FOR_STATE[w.state], project)
+    """Keep the live stage in step with the workflow the manager just moved.
+
+    The move is already in the ledger: the live stage is a display, so a failure to
+    write it is a warning, never an error that would make the manager retry the move."""
+    try:
+        if w.state in workflow.TERMINAL or w.state == "BLOCKED":
+            live.clear_stage(project)
+        elif w.state in STAGE_FOR_STATE:
+            live.set_stage(w.task_id, STAGE_FOR_STATE[w.state], project)
+    except OSError as e:
+        print(f"hydra-pod-dsh: warning: live stage not updated ({e.strerror or e})", file=sys.stderr)
 
 
 def _wf(a) -> int:
@@ -948,7 +954,7 @@ def _dispatch(ap, a) -> int:
         print(json.dumps(st) if a.json else render(st))
         return 0
     if a.clear:
-        live.clear_stage()
+        live.clear_stage(os.path.abspath(a.project))
         print("stage cleared")
         return 0
     if not a.stage:
